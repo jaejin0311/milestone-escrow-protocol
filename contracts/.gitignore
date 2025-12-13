@@ -13,9 +13,16 @@ docs/
 # Dotenv file
 .env
 
-# Foundry
-contracts/out/
+# next
+.next/
+out/
+node_modules/
+
+# foundry
+contracts/broadcast/
 contracts/cache/
+broadcast/
+cache/
 
 # Broadcast and cache folders
 grep -n "broadcast" ../../contracts/.gitignore || echo -e "\n# foundry\nbroadcast/\ncache/\n" >> ../../contracts/.gitignore
