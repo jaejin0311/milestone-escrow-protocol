@@ -8,6 +8,7 @@ import {
   getAddress,
   isAddress,
   parseAbiItem,
+  parseEventLogs
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { foundry } from "viem/chains";
@@ -140,14 +141,32 @@ export async function POST(req: Request) {
     }
 
     if (action === "createEscrow") {
-      // demo template: fixed addresses (anvil default)
-      const clientAddr = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266" as `0x${string}`;
-      const providerAddr = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8" as `0x${string}`;
+      // Optional params from UI (fallback to sensible defaults)
+      const clientAddr = (body?.client as string) || "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
+      const providerAddr = (body?.provider as string) || "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
 
-      const amounts = [parseEther("0.3"), parseEther("0.7")];
+      if (!isAddress(clientAddr) || !isAddress(providerAddr)) {
+        return NextResponse.json(
+          { ok: false, error: { message: "invalid client/provider address" } },
+          { status: 400 }
+        );
+      }
 
+      const amountsEth: string[] = Array.isArray(body?.amountsEth) ? body.amountsEth : ["0.3", "0.7"];
       const nowSec = Math.floor(Date.now() / 1000);
-      const deadlines = [nowSec + 7 * 24 * 60 * 60, nowSec + 14 * 24 * 60 * 60];
+      const deadlinesSec: number[] = Array.isArray(body?.deadlinesSec)
+        ? body.deadlinesSec
+        : [nowSec + 7 * 24 * 60 * 60, nowSec + 14 * 24 * 60 * 60];
+
+      if (amountsEth.length === 0 || amountsEth.length !== deadlinesSec.length) {
+        return NextResponse.json(
+          { ok: false, error: { message: "amountsEth and deadlinesSec must have same non-zero length" } },
+          { status: 400 }
+        );
+      }
+
+      const amounts = amountsEth.map((x) => parseEther(String(x)));
+      const deadlines = deadlinesSec.map((x) => BigInt(x));
 
       const { wc, account } = wallet("client");
 
@@ -155,7 +174,12 @@ export async function POST(req: Request) {
         address: FACTORY,
         abi: factoryAbi,
         functionName: "createEscrow",
-        args: [clientAddr, providerAddr, amounts, deadlines],
+        args: [
+          getAddress(clientAddr) as `0x${string}`,
+          getAddress(providerAddr) as `0x${string}`,
+          amounts,
+          deadlines,
+        ],
         account,
       });
 
@@ -163,18 +187,19 @@ export async function POST(req: Request) {
 
       // parse event from receipt logs
       let escrow: `0x${string}` | null = null;
-      for (const l of receipt.logs) {
-        try {
-          const parsed = publicClient.parseEventLog({ abi: factoryAbi, ...l });
-          if (parsed.eventName === "EscrowCreated") {
-            const addr = parsed.args.escrow as string;
-            if (isAddress(addr)) escrow = getAddress(addr) as `0x${string}`;
-          }
-        } catch {}
+      const parsed = parseEventLogs({ abi: factoryAbi, logs: receipt.logs });
+
+      for (const p of parsed) {
+        if (p.eventName === "EscrowCreated") {
+          const addr = p.args.escrow as string;
+          if (isAddress(addr)) escrow = getAddress(addr) as `0x${string}`;
+          break;
+        }
       }
 
       return NextResponse.json({ ok: true, action, hash, escrow });
-    }
+      }
+
 
     const escrowParam = body?.escrow as string;
     if (!isAddress(escrowParam)) {

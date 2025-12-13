@@ -50,6 +50,10 @@ function trimAddr(addr?: string) {
 }
 
 export default function Home() {
+  const [clientAddr, setClientAddr] = useState("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266");
+  const [providerAddr, setProviderAddr] = useState("0x70997970C51812dc3A010C7d01b50e0d17dc79C8");
+  const [amountsEthCsv, setAmountsEthCsv] = useState("0.3,0.7");
+  const [deadlinesDaysCsv, setDeadlinesDaysCsv] = useState("7,14");
   const [state, setState] = useState<ApiState | null>(null);
   const [selectedMilestoneIdx, setSelectedMilestoneIdx] = useState(0);
 
@@ -103,8 +107,27 @@ export default function Home() {
   }
 
   async function createNewEscrow() {
-    await post("createEscrow");
-    // refresh and auto-select newest by calling refresh without param (server picks latest)
+    const amountsEth = amountsEthCsv
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const days = deadlinesDaysCsv
+      .split(",")
+      .map((s) => Number(s.trim()))
+      .filter((n) => Number.isFinite(n) && n > 0);
+
+    // convert days-from-now -> unix seconds
+    const nowSec = Math.floor(Date.now() / 1000);
+    const deadlinesSec = days.map((d) => nowSec + d * 24 * 60 * 60);
+
+    await post("createEscrow", {
+      client: clientAddr,
+      provider: providerAddr,
+      amountsEth,
+      deadlinesSec,
+    });
+
     await refresh(null);
   }
 
@@ -185,14 +208,41 @@ export default function Home() {
             Factory creates new escrows. No env address swapping.
           </div>
         </div>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
           <button style={btnGhost} onClick={() => refresh(selectedEscrow)} disabled={busy}>
             Refresh
           </button>
+
+          <input
+            style={{ ...input, width: 320 }}
+            placeholder="client address"
+            value={clientAddr}
+            onChange={(e) => setClientAddr(e.target.value)}
+          />
+          <input
+            style={{ ...input, width: 320 }}
+            placeholder="provider address"
+            value={providerAddr}
+            onChange={(e) => setProviderAddr(e.target.value)}
+          />
+          <input
+            style={{ ...input, width: 160 }}
+            placeholder="amounts (ETH) e.g. 0.3,0.7"
+            value={amountsEthCsv}
+            onChange={(e) => setAmountsEthCsv(e.target.value)}
+          />
+          <input
+            style={{ ...input, width: 140 }}
+            placeholder="deadlines (days) e.g. 7,14"
+            value={deadlinesDaysCsv}
+            onChange={(e) => setDeadlinesDaysCsv(e.target.value)}
+          />
+
           <button style={{ ...btn, ...(busy ? btnDisabled : {}) }} onClick={createNewEscrow} disabled={busy}>
             Create new escrow
           </button>
         </div>
+
       </div>
 
       <div style={{ height: 12 }} />
