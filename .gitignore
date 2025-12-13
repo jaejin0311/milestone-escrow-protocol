@@ -1,1 +1,7 @@
 node_modules
+# Foundry
+contracts/out/
+contracts/cache/
+# Foundry
+contracts/out/
+contracts/cache/
