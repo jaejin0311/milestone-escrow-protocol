@@ -1,11 +1,28 @@
-node_modules
-# Foundry
-contracts/out/
-contracts/cache/
-# Foundry
-contracts/out/
-contracts/cache/
+# Compiler files
+cache/
+out/
 
+# Ignores development broadcast logs
+!/broadcast
+/broadcast/*/31337/
+/broadcast/**/dry-run/
+
+# Docs
+docs/
+
+# Dotenv file
 .env
-.env.local
-.env.*.local
+
+# next
+.next/
+out/
+node_modules/
+
+# foundry
+contracts/broadcast/
+contracts/cache/
+broadcast/
+cache/
+
+# Broadcast and cache folders
+grep -n "broadcast" ../../contracts/.gitignore || echo -e "\n# foundry\nbroadcast/\ncache/\n" >> ../../contracts/.gitignore
