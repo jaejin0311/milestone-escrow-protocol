@@ -1,4 +1,7 @@
 import { NextResponse } from "next/server";
+import fs from "node:fs";
+import path from "node:path";
+export const runtime = "nodejs";
 import {
   createPublicClient,
   createWalletClient,
@@ -21,13 +24,85 @@ const CLIENT_PK = process.env.CLIENT_PK as `0x${string}`;
 const PROVIDER_PK = process.env.PROVIDER_PK as `0x${string}`;
 
 const publicClient = createPublicClient({ chain: sepolia, transport: http(RPC) });
+const DATA_DIR = path.join(process.cwd(), ".data");
+const ESCROWS_FILE = path.join(DATA_DIR, "escrows.json");
+
+function ensureDataDir() {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+function loadSavedEscrows(): `0x${string}`[] {
+  try {
+    ensureDataDir();
+    if (!fs.existsSync(ESCROWS_FILE)) return [];
+    const raw = fs.readFileSync(ESCROWS_FILE, "utf-8");
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter((x) => typeof x === "string" && isAddress(x))
+      .map((x) => getAddress(x) as `0x${string}`);
+  } catch {
+    return [];
+  }
+}
+
+function saveEscrow(addr: `0x${string}`) {
+  ensureDataDir();
+  const cur = new Set(loadSavedEscrows());
+  cur.add(getAddress(addr) as `0x${string}`);
+  fs.writeFileSync(ESCROWS_FILE, JSON.stringify(Array.from(cur), null, 2));
+}
+
+function pkAddrFromProcessEnv(name: "CLIENT_PK" | "PROVIDER_PK") {
+  try {
+    const pk = process.env[name] as `0x${string}` | undefined;
+    if (!pk) return "(missing)";
+    return privateKeyToAccount(pk).address;
+  } catch {
+    return "(invalid)";
+  }
+}
+
+function pkAddrFromEnvLocalFile(name: "CLIENT_PK" | "PROVIDER_PK") {
+  try {
+    const envPath = path.join(process.cwd(), ".env.local");
+    if (!fs.existsSync(envPath)) return "(no .env.local)";
+    const raw = fs.readFileSync(envPath, "utf-8").split(/\r?\n/);
+    const line = raw.find((l) => l.startsWith(name + "="));
+    if (!line) return "(not in .env.local)";
+    const val = line.split("=").slice(1).join("=").trim().replace(/^["']|["']$/g, "");
+    return privateKeyToAccount(val as `0x${string}`).address;
+  } catch {
+    return "(invalid)";
+  }
+}
+
+function readEnvLocal(key: string): string | undefined {
+  const envPath = path.join(process.cwd(), ".env.local");
+  if (!fs.existsSync(envPath)) return undefined;
+
+  const lines = fs.readFileSync(envPath, "utf-8").split(/\r?\n/);
+  const line = lines.find((l) => l.startsWith(key + "="));
+  if (!line) return undefined;
+
+  return line.split("=").slice(1).join("=").trim().replace(/^["']|["']$/g, "");
+}
+
 
 function wallet(role: "client" | "provider") {
-  const pk = role === "client" ? CLIENT_PK : PROVIDER_PK;
+  const keyName = role === "client" ? "CLIENT_PK" : "PROVIDER_PK";
+
+  // .env.local 값을 최우선으로 사용 (process.env는 덮어쓰기 이슈가 있어 보조로만)
+  const pk =
+    (readEnvLocal(keyName) || process.env[keyName]) as `0x${string}` | undefined;
+
+  if (!pk) throw new Error(`Missing ${keyName}`);
+
   const account = privateKeyToAccount(pk);
   const wc = createWalletClient({ chain: sepolia, transport: http(RPC), account });
   return { wc, account };
 }
+
 
 function errToJson(e: any) {
   return {
@@ -98,23 +173,36 @@ export async function GET(req: Request) {
       "event EscrowCreated(address indexed escrow, address indexed client, address indexed provider)"
     );
 
+    // 1) 파일에 저장된 목록을 먼저 읽음
+    const saved = loadSavedEscrows();
+
+    // 2) 알케미 free tier 때문에 logs는 10블록만 스캔
     const latest = await publicClient.getBlockNumber();
-    const fromBlock = latest > 9n ? latest - 9n : 0n; // 10-block window
+    const fromBlock = latest > 9n ? latest - 9n : 0n;
 
-    const logs = await publicClient.getLogs({
-      address: FACTORY,
-      event,
-      fromBlock,
-      toBlock: latest,
-    });
+    // 3) logs 조회는 실패할 수 있으니 try/catch
+    let createdFromLogs: `0x${string}`[] = [];
+    try {
+      const logs = await publicClient.getLogs({
+        address: FACTORY,
+        event,
+        fromBlock,
+        toBlock: latest,
+      });
 
+      createdFromLogs = logs
+        .map((l: any) => l.args?.escrow as string)
+        .filter((x: string) => isAddress(x))
+        .map((x: string) => getAddress(x) as `0x${string}`)
+        .reverse(); // newest first
+    } catch {
+      // ignore: RPC log range limits etc.
+    }
 
-    const escrows = logs
-      .map((l: any) => l.args?.escrow as string)
-      .filter((x: string) => isAddress(x))
-      .map((x: string) => getAddress(x) as `0x${string}`)
-      .reverse(); // newest first
-      const escrowsLimited = escrows.slice(0, limit);
+    // 4) logs + saved 합치기 (중복 제거) 후 limit 적용
+    const escrows = Array.from(new Set([...createdFromLogs, ...saved]));
+    const escrowsLimited = escrows.slice(0, limit);
+
 
     const selected =
       selectedParam && isAddress(selectedParam)
@@ -177,6 +265,11 @@ export async function POST(req: Request) {
       const deadlines = deadlinesSec.map((x) => BigInt(x));
 
       const { wc, account } = wallet("client");
+      console.log("PK_ADDR process.env CLIENT =", pkAddrFromProcessEnv("CLIENT_PK"));
+      console.log("PK_ADDR .env.local  CLIENT =", pkAddrFromEnvLocalFile("CLIENT_PK"));
+      console.log("CREATE_ESCROW sender =", account.address);
+      console.log("RPC =", RPC);
+      console.log("FACTORY =", FACTORY);
 
       const hash = await wc.writeContract({
         address: FACTORY,
@@ -204,8 +297,8 @@ export async function POST(req: Request) {
           break;
         }
       }
-
-      return NextResponse.json({ ok: true, action, hash, escrow });
+      if (escrow) saveEscrow(escrow);
+      return NextResponse.json({ ok: true, action, hash, escrow, sender: account.address, clientAddr, providerAddr });
       }
 
 

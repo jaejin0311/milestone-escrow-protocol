@@ -26,3 +26,6 @@ cache/
 
 # Broadcast and cache folders
 grep -n "broadcast" ../../contracts/.gitignore || echo -e "\n# foundry\nbroadcast/\ncache/\n" >> ../../contracts/.gitignore
+
+# local demo data
+apps/web/.data/

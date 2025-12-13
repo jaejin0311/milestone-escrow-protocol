@@ -50,9 +50,9 @@ function trimAddr(addr?: string) {
 }
 
 export default function Home() {
-  const [clientAddr, setClientAddr] = useState("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266");
-  const [providerAddr, setProviderAddr] = useState("0x70997970C51812dc3A010C7d01b50e0d17dc79C8");
-  const [amountsEthCsv, setAmountsEthCsv] = useState("0.3,0.7");
+  const [clientAddr, setClientAddr] = useState("0xAFCe530A7D5D6CAB18129dfCdDd2A25F7B825a0D");
+  const [providerAddr, setProviderAddr] = useState("0xAFCe530A7D5D6CAB18129dfCdDd2A25F7B825a0D");
+  const [amountsEthCsv, setAmountsEthCsv] = useState("0.001,0.002");
   const [deadlinesDaysCsv, setDeadlinesDaysCsv] = useState("7,14");
   const [state, setState] = useState<ApiState | null>(null);
   const [selectedMilestoneIdx, setSelectedMilestoneIdx] = useState(0);
