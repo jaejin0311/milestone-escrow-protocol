@@ -16,4 +16,6 @@ docs/
 # Foundry
 contracts/out/
 contracts/cache/
-EOF
+
+# Broadcast and cache folders
+grep -n "broadcast" ../../contracts/.gitignore || echo -e "\n# foundry\nbroadcast/\ncache/\n" >> ../../contracts/.gitignore

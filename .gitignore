@@ -5,3 +5,7 @@ contracts/cache/
 # Foundry
 contracts/out/
 contracts/cache/
+
+.env
+.env.local
+.env.*.local

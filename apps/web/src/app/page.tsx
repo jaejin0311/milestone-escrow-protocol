@@ -56,13 +56,11 @@ export default function Home() {
   const [deadlinesDaysCsv, setDeadlinesDaysCsv] = useState("7,14");
   const [state, setState] = useState<ApiState | null>(null);
   const [selectedMilestoneIdx, setSelectedMilestoneIdx] = useState(0);
-
+  const [escrowLimit, setEscrowLimit] = useState(20);
   const [proofURI, setProofURI] = useState("ipfs://proof-0");
   const [reasonURI, setReasonURI] = useState("ipfs://reason");
-
   const [busy, setBusy] = useState(false);
   const [log, setLog] = useState<string>("");
-
   const selectedEscrow = state?.selected ?? null;
   const snap = state?.snapshot ?? null;
 
@@ -72,7 +70,11 @@ export default function Home() {
   }, [snap, selectedMilestoneIdx]);
 
   async function refresh(escrow?: string | null) {
-    const qs = escrow ? `?escrow=${escrow}` : "";
+    const params = new URLSearchParams();
+    params.set("limit", String(escrowLimit));
+    if (escrow) params.set("escrow", escrow);
+
+    const qs = `?${params.toString()}`;
     const res = await fetch(`/api/escrow${qs}`, { cache: "no-store" });
     const text = await res.text();
     try {
@@ -140,7 +142,7 @@ export default function Home() {
   useEffect(() => {
     refresh(null).catch((e) => setLog(e?.message || String(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [escrowLimit]);
 
   const canFund = !!snap && !snap.funded;
   const canSubmit =
@@ -212,6 +214,18 @@ export default function Home() {
           <button style={btnGhost} onClick={() => refresh(selectedEscrow)} disabled={busy}>
             Refresh
           </button>
+          <select
+            value={escrowLimit}
+            onChange={(e) => setEscrowLimit(Number(e.target.value))}
+            style={{ ...input, width: 120 }}
+            disabled={busy}
+          >
+            <option value={20}>20</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+            <option value={200}>200</option>
+          </select>
+
 
           <input
             style={{ ...input, width: 320 }}

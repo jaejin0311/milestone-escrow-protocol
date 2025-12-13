@@ -11,7 +11,7 @@ import {
   parseEventLogs
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { foundry } from "viem/chains";
+import { sepolia } from "viem/chains";
 import { escrowAbi } from "@/lib/escrowAbi";
 import { factoryAbi } from "@/lib/factoryAbi";
 
@@ -20,12 +20,12 @@ const FACTORY = process.env.FACTORY_ADDRESS as `0x${string}`;
 const CLIENT_PK = process.env.CLIENT_PK as `0x${string}`;
 const PROVIDER_PK = process.env.PROVIDER_PK as `0x${string}`;
 
-const publicClient = createPublicClient({ chain: foundry, transport: http(RPC) });
+const publicClient = createPublicClient({ chain: sepolia, transport: http(RPC) });
 
 function wallet(role: "client" | "provider") {
   const pk = role === "client" ? CLIENT_PK : PROVIDER_PK;
   const account = privateKeyToAccount(pk);
-  const wc = createWalletClient({ chain: foundry, transport: http(RPC), account });
+  const wc = createWalletClient({ chain: sepolia, transport: http(RPC), account });
   return { wc, account };
 }
 
@@ -89,29 +89,37 @@ export async function GET(req: Request) {
     }
 
     const url = new URL(req.url);
+    const limitParam = Number(url.searchParams.get("limit") || "20");
+    const limit = Number.isFinite(limitParam) ? Math.max(1, Math.min(200, limitParam)) : 20;
+
     const selectedParam = url.searchParams.get("escrow");
 
     const event = parseAbiItem(
       "event EscrowCreated(address indexed escrow, address indexed client, address indexed provider)"
     );
 
+    const latest = await publicClient.getBlockNumber();
+    const fromBlock = latest > 9n ? latest - 9n : 0n; // 10-block window
+
     const logs = await publicClient.getLogs({
       address: FACTORY,
       event,
-      fromBlock: 0n,
-      toBlock: "latest",
+      fromBlock,
+      toBlock: latest,
     });
+
 
     const escrows = logs
       .map((l: any) => l.args?.escrow as string)
       .filter((x: string) => isAddress(x))
       .map((x: string) => getAddress(x) as `0x${string}`)
       .reverse(); // newest first
+      const escrowsLimited = escrows.slice(0, limit);
 
     const selected =
       selectedParam && isAddress(selectedParam)
         ? (getAddress(selectedParam) as `0x${string}`)
-        : escrows[0] ?? null;
+        : escrowsLimited[0] ?? null;
 
     const snapshot = selected ? await readEscrowSnapshot(selected) : null;
 
@@ -119,7 +127,7 @@ export async function GET(req: Request) {
       ok: true,
       rpc: RPC,
       factory: FACTORY,
-      escrows,
+      escrows: escrowsLimited,
       selected,
       snapshot,
     });
