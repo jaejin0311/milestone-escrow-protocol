@@ -85,6 +85,7 @@ contract MilestoneEscrow {
 
     function submit(uint256 i, string calldata proofURI) external onlyProvider {
         require(funded, "NOT_FUNDED");
+        require(i == 0 || _milestones[i-1].status == Status.Paid, "PREV_NOT_PAID");
         require(i < _milestones.length, "OOB");
         Milestone storage m = _milestones[i];
         require(m.status == Status.Pending || m.status == Status.Rejected, "BAD_STATUS");

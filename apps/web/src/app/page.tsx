@@ -71,7 +71,7 @@ export default function Home() {
     return snap.milestones.find((m) => m.i === selectedMilestoneIdx) ?? null;
   }, [snap, selectedMilestoneIdx]);
 
-  async function refresh(escrow?: string | null) {
+  async function refresh(escrow?: string | null, opts?: { autoPick?: boolean }) {
     const params = new URLSearchParams();
     params.set("limit", String(escrowLimit));
     if (escrow) params.set("escrow", escrow);
@@ -83,6 +83,12 @@ export default function Home() {
       const data = JSON.parse(text);
       setState(data);
       // keep milestone idx valid
+      const ms = data?.snapshot?.milestones ?? [];
+      // block providers to submit the later milestones before earlier ones are paid
+      if ((opts?.autoPick ?? false) && ms.length > 0) {
+        const nextIdx = ms.find((x: any) => x.status === 0 || x.status === 3)?.i ?? 0;
+        setSelectedMilestoneIdx(nextIdx);
+      }
       const count = data?.snapshot?.milestones?.length ?? 0;
       if (count > 0 && selectedMilestoneIdx >= count) setSelectedMilestoneIdx(0);
     } catch {
@@ -146,7 +152,7 @@ export default function Home() {
     });
 
     const created = out?.escrow as string | undefined;
-    await refresh(created ?? null);
+    await refresh(created ?? null, { autoPick: true });
   }
 
   async function act(action: string, payload: any = {}) {
