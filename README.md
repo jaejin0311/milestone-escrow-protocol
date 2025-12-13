@@ -229,7 +229,9 @@ LinkedIn: linkedin.com/in/jaejink
 ## 📝 Dev Log
 
 2025-12-13: Sepolia Factory 연동 + Escrow 목록 유지
+
 Challenge: Alchemy Free tier의 eth_getLogs 스캔 범위 제한으로 과거 escrow 조회가 실패
+
 Solution:
  - 최근 블록만 스캔
  - 생성된 escrow 주소를 .data/escrows.json에 저장하여 목록 유지
@@ -237,11 +239,17 @@ Solution:
 Result: Sepolia에서도 UI에서 escrow 생성/선택/상태조회가 안정적으로 동작
 
 2025-12-13: Sequential milestone enforcement 추가
-Challenge: provider가 milestone #0을 건너뛰고 #1을 먼저 제출할 수 있었음
-Solution: 컨트랙트에서 submit(i) 시 직전 마일스톤 Paid를 강제하고, 위반 시 PREV_NOT_PAID revert
-Result: “단계별 검수/정산”이 프로토콜 레벨에서 보장됨
 
-2025-12-13: Codespaces용 데모 안정화
-Challenge: anvil RPC가 컨테이너 내부 127.0.0.1에 떠서 브라우저 지갑이 직접 접근 불가
-Solution: Next.js API routes에서 서버가 트랜잭션 실행 (데모 전용)
-Result: MetaMask 없이도 UI에서 fund → submit → approve/reject 플로우 실행 가능
+ Challenge: provider가 milestone #0을 건너뛰고 #1을 먼저 제출할 수 있었음
+
+ Solution: 컨트랙트에서 submit(i) 시 직전 마일스톤 Paid를 강제하고, 위반 시 PREV_NOT_PAID revert
+
+ Result: “단계별 검수/정산”이 프로토콜 레벨에서 보장됨
+
+ 2025-12-13: Codespaces용 데모 안정화
+
+ Challenge: anvil RPC가 컨테이너 내부 127.0.0.1에 떠서 브라우저 지갑이 직접 접근 불가
+
+ Solution: Next.js API routes에서 서버가 트랜잭션 실행 (데모 전용)
+
+ Result: MetaMask 없이도 UI에서 fund → submit → approve/reject 플로우 실행 가능
