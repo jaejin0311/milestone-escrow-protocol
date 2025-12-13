@@ -66,22 +66,36 @@ Codespaces에서 `anvil`은 컨테이너 내부 `127.0.0.1`에 떠서, 로컬 �
 
 > ⚠️ Security Note: 데모 전용입니다. `.env.local`에 private key가 들어갑니다.
 
+### 4) Factory-based Escrow Creation (Implemented)
+
+- `MilestoneEscrowFactory`를 Sepolia에 배포하고, UI에서 `createEscrow()`로 새 에스크로를 생성합니다.
+- 생성된 에스크로 주소는 이벤트 로그 + 로컬 저장(.data)로 관리하여, Alchemy free tier의 로그 스캔 제한에도 데모가 동작합니다.
+
+
 <br/>
 
 ## 🧱 Architecture
 
-**Demo architecture (Codespaces):**
+이 프로젝트는 **2가지 실행 모드**를 지원합니다.
 
-- `anvil` runs inside Codespace (RPC on `127.0.0.1:8545`)
-- Next.js API route signs transactions (server-side)
-- UI calls API for reads/writes
+### A) Codespaces / Local Demo (Anvil)
+- `anvil` runs inside Codespaces (RPC on `127.0.0.1:8545`)
+- Next.js API routes signs transactions (server-side)
+- Wallet 없이도 UI 버튼으로 fund/submit/approve/reject 수행 (데모 목적)
+
+### B) Testnet Demo (Sepolia)
+- Factory를 Sepolia에 배포
+- Next.js API routes가 Sepolia RPC로 트랜잭션 실행
+- UI에서 factory로 escrow 생성 및 조회
 
 ```text
 Browser UI
   ↓ fetch
-Next.js (API routes) ──(JSON-RPC)──> Anvil (31337)
+Next.js (API routes) ──(JSON-RPC)──> RPC (Anvil or Sepolia)
   ↓
-Smart Contract (MilestoneEscrow)
+Factory → Escrow Contracts
+
+⚠️ RPC Note (Alchemy Free tier): eth_getLogs는 최대 10 blocks range 제한이 있어, 본 데모는 최근 블록만 스캔하고 생성된 escrow 주소를 .data/escrows.json에 저장해 재사용합니다.
 ```
 
 ## 🚀 Getting Started
@@ -110,30 +124,43 @@ forge install foundry-rs/forge-std
 forge test
 ```
 
-### 2) Deploy Demo Escrow
+### 2) Deploy Factory (Sepolia)
 ```bash
 cd contracts
+source .env
 
-export CLIENT_ADDR=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
-export PROVIDER_ADDR=0x70997970C51812dc3A010C7d01b50e0d17dc79C8
-
-forge script script/DeployMilestoneEscrow.s.sol:DeployMilestoneEscrow \
-  --rpc-url http://127.0.0.1:8545 \
+forge script script/DeployFactory.s.sol:DeployFactory \
+  --rpc-url "$SEPOLIA_RPC_URL" \
   --broadcast \
-  --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
-  -q
+  --private-key "$DEPLOYER_PK" \
+  -vv
 ```
-출력의 Contract Address: 0x...를 복사합니다.
+출력의 Contract Address: 0x... (Factory Address)를 복사합니다.
 
 ### 3) Run Web UI
-apps/web/.env.local 생성:
+`apps/web/.env.local` 생성:
 ```bash
 ESCROW_RPC_URL=http://127.0.0.1:8545
 ESCROW_ADDRESS=0xYOUR_ESCROW_ADDRESS
 
+#### Option A) Anvil (Codespaces/Local)
+```bash
+ESCROW_RPC_URL=http://127.0.0.1:8545
+FACTORY_ADDRESS=0xYOUR_FACTORY_ADDRESS
+
 # demo keys (anvil default)
 CLIENT_PK=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 PROVIDER_PK=0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
+```
+#### Option B) Sepolia (Testnet)
+```bash
+ESCROW_RPC_URL=https://eth-sepolia.g.alchemy.com/v2/YOUR_KEY
+FACTORY_ADDRESS=0xYOUR_FACTORY_ADDRESS
+
+# demo keys (Sepolia wallet private keys)
+# NOTE: 반드시 0x prefix 포함
+CLIENT_PK=0x...
+PROVIDER_PK=0x...
 ```
 실행:
 ```bash
@@ -142,7 +169,10 @@ npm install
 npm run dev -- --hostname 0.0.0.0 --port 3000
 ```
 Codespaces에서 포트 3000을 열면 UI가 뜹니다.
+⚠️ Security Note: 데모 전용입니다. .env.local에 private key가 들어갑니다. 절대 커밋하지 마세요.
 <br/>
+
+
 
 ## ✅ Demo Flow
 UI에서 순서대로:
@@ -162,17 +192,12 @@ reject(0, reasonURI) 후 submit(0, proofURI v2)
 <br/>
 🗺 Roadmap
 
- Phase 1: Milestone Escrow Contract + Tests
-
- Phase 2: Minimal UI demo (Codespaces-compatible)
-
- Phase 3: Factory pattern (UI에서 새 escrow 생성, env 주소 교체 제거)
-
- Phase 4: Timeout / dispute window (N일 이후 claim)
-
- Phase 5: Off-chain proof (IPFS + typed metadata)
-
- Phase 6: Optional: testnet 배포 + wallet 기반 UX
+[x] Phase 1: Milestone Escrow Contract + Tests
+[x] Phase 2: Minimal UI demo (Codespaces-compatible)
+[x] Phase 3: Factory pattern (UI에서 새 escrow 생성, env 주소 교체 제거)
+[ ] Phase 4: Timeout / dispute window (N일 이후 claim)
+[ ] Phase 5: Off-chain proof (IPFS + typed metadata)
+[ ] Phase 6: Optional: testnet 배포 + wallet 기반 UX
 
 <br/>
 📬 Contact
@@ -187,16 +212,20 @@ LinkedIn: linkedin.com/in/jaejink
 >
 ## 📝 Dev Log
 
+2025-12-13: Sepolia Factory 연동 + Escrow 목록 유지
+
+Challenge: Alchemy Free tier의 `eth_getLogs`가 10 blocks range 제한으로 과거 escrow 조회가 실패
+Solution:
+- 최근 블록만 스캔
+- 생성된 escrow 주소를 `.data/escrows.json`에 저장하여 목록 유지
+- Next.js API route에서 `.env.local`을 직접 읽어 PK/설정값이 서버 환경변수에 의해 꼬이지 않도록 안정화
+Result: Sepolia에서도 UI에서 escrow 생성/선택/상태조회가 안정적으로 동작
+
 2025-12-13 (Latest): Codespaces용 데모 안정화
-
 Challenge: anvil RPC가 컨테이너 내부 127.0.0.1에 떠서 브라우저 지갑이 직접 접근 불가
-
 Solution: Next.js API routes에서 서버가 트랜잭션 실행 (데모 전용)
-
 Result: MetaMask 없이도 UI에서 fund → submit → approve/reject 플로우 실행 가능
 
 2025-12-13: Foundry 테스트/의존성 이슈 복구
-
 forge-std 의존성/경로 문제 해결
-
 stateless 환경(Codespaces)에서 재현 가능한 셋업 정리
