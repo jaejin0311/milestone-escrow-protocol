@@ -2,11 +2,11 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
-import "../src/MilestoneEscrow.sol";
+import {MilestoneEscrow} from "../src/MilestoneEscrow.sol";
 
 contract MilestoneEscrowTest is Test {
-    address client = address(0xC1);
-    address provider = address(0xP2);
+    address client = vm.addr(1);
+    address provider = vm.addr(2);
 
     function _deploy2Milestones() internal returns (MilestoneEscrow e) {
         uint256;
@@ -22,7 +22,6 @@ contract MilestoneEscrowTest is Test {
 
     function test_happyPath_submitApprovePays() public {
         MilestoneEscrow e = _deploy2Milestones();
-
         vm.deal(client, 1 ether);
 
         vm.prank(client);
