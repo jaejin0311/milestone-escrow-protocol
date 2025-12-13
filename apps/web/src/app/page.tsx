@@ -97,16 +97,27 @@ export default function Home() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action, ...payload }),
       });
+
       const text = await res.text();
+
+      let json: any = null;
       try {
-        setLog(JSON.stringify(JSON.parse(text), null, 2));
+        json = text ? JSON.parse(text) : null;
+        setLog(JSON.stringify(json, null, 2));
       } catch {
         setLog(text || "(empty response)");
       }
+
+      if (!res.ok) {
+        throw new Error(json?.error?.message || text || `HTTP ${res.status}`);
+      }
+
+      return json;
     } finally {
       setBusy(false);
     }
   }
+
 
   async function createNewEscrow() {
     const amountsEth = amountsEthCsv
@@ -123,14 +134,15 @@ export default function Home() {
     const nowSec = Math.floor(Date.now() / 1000);
     const deadlinesSec = days.map((d) => nowSec + d * 24 * 60 * 60);
 
-    await post("createEscrow", {
+    const out  = await post("createEscrow", {
       client: clientAddr,
       provider: providerAddr,
       amountsEth,
       deadlinesSec,
     });
 
-    await refresh(null);
+    const created = out?.escrow as string | undefined;
+    await refresh(created ?? null);
   }
 
   async function act(action: string, payload: any = {}) {
