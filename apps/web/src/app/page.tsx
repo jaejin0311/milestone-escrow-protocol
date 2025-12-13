@@ -61,6 +61,8 @@ export default function Home() {
   const [reasonURI, setReasonURI] = useState("ipfs://reason");
   const [busy, setBusy] = useState(false);
   const [log, setLog] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const selectedEscrow = state?.selected ?? null;
   const snap = state?.snapshot ?? null;
 
@@ -92,6 +94,8 @@ export default function Home() {
     setBusy(true);
     try {
       setLog("...");
+      setError(null);
+      setNotice(null);
       const res = await fetch("/api/escrow", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -147,24 +151,40 @@ export default function Home() {
 
   async function act(action: string, payload: any = {}) {
     if (!selectedEscrow) return;
-    await post(action, { escrow: selectedEscrow, ...payload });
-    await refresh(selectedEscrow);
+    try {
+      await post(action, { escrow: selectedEscrow, ...payload });
+      setNotice(`OK: ${action}(${Object.keys(payload).join(", ") || "no args"})`);
+      await refresh(selectedEscrow);
+    } catch (e: any) {
+      setError(e?.message || String(e));
+    }
   }
+
+
 
   useEffect(() => {
     refresh(null).catch((e) => setLog(e?.message || String(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [escrowLimit]);
 
-  const canFund = !!snap && !snap.funded;
-  const canSubmit =
-    !!snap &&
-    snap.funded &&
-    !!selectedMilestone &&
-    (selectedMilestone.status === 0 || selectedMilestone.status === 3);
-  const canApprove = !!snap && snap.funded && !!selectedMilestone && selectedMilestone.status === 1;
-  const canReject = !!snap && snap.funded && !!selectedMilestone && selectedMilestone.status === 1;
+  const m = selectedMilestone;
+  const canFund = !!selectedEscrow && !busy && !!snap && !snap.funded;
 
+  const canSubmit =
+    !!selectedEscrow &&
+    !!snap?.funded &&
+    !!m &&
+    (m.status === 0 || m.status === 3); // Pending or Rejected
+  const canApprove =
+    !!selectedEscrow &&
+    !!snap?.funded &&
+    !!m &&
+    m.status === 1; // Submitted
+  const canReject =
+    !!selectedEscrow &&
+    !!snap?.funded &&
+    !!m &&
+    m.status === 1; // Submitted
   const container: React.CSSProperties = {
     padding: 24,
     fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial",
@@ -419,6 +439,20 @@ export default function Home() {
 
               <div style={{ fontWeight: 800 }}>Actions (selected milestone #{selectedMilestoneIdx})</div>
               <div style={{ height: 10 }} />
+              <div style={{ color: "#6b7280", fontSize: 13 }}>
+                {snap?.funded
+                  ? m
+                    ? `Milestone status: ${statusLabel(m.status)}. ` +
+                      (m.status === 0 ? "Provider can submit." :
+                      m.status === 1 ? "Client can approve or reject." :
+                      m.status === 3 ? "Provider can resubmit." :
+                      m.status === 4 ? "Paid. No further actions." :
+                      "No actions available.")
+                    : "Select a milestone."
+                  : "Escrow is not funded yet. Fund first."}
+              </div>
+              <div style={{ height: 10 }} />
+
 
               <div style={{ display: "grid", gap: 10 }}>
                 <div style={{ display: "grid", gridTemplateColumns: "120px 1fr 170px", gap: 10 }}>
@@ -453,6 +487,27 @@ export default function Home() {
       </div>
 
       <div style={{ height: 12 }} />
+      {error ? (
+        <section style={{ ...card, borderColor: "#fecaca", background: "#fef2f2", color: "#991b1b" }}>
+          <div style={{ fontWeight: 800 }}>Error</div>
+          <div style={{ marginTop: 6, whiteSpace: "pre-wrap", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>
+            {error}
+          </div>
+        </section>
+      ) : null}
+
+      <div style={{ height: 12 }} />
+
+      {notice ? (
+        <section style={{ ...card, borderColor: "#bbf7d0", background: "#f0fdf4", color: "#166534" }}>
+          <div style={{ fontWeight: 800 }}>Success</div>
+          <div style={{ marginTop: 6, whiteSpace: "pre-wrap", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>
+            {notice}
+          </div>
+        </section>
+      ) : null}
+
+      {notice ? <div style={{ height: 12 }} /> : null}
 
       <section style={card}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
