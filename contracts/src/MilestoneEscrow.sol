@@ -8,8 +8,8 @@ contract MilestoneEscrow {
         uint256 amount;
         uint64 deadline;
         Status status;
-        string proofURI;   // 제출물 링크(노션/깃/드라이브)
-        string reasonURI;  // 거절 사유 링크(선택)
+        string proofURI;
+        string reasonURI;
     }
 
     address public immutable client;
