@@ -1,11 +1,21 @@
 import { NextResponse } from "next/server";
-import { createPublicClient, createWalletClient, http, formatEther } from "viem";
+import {
+  createPublicClient,
+  createWalletClient,
+  http,
+  formatEther,
+  parseEther,
+  getAddress,
+  isAddress,
+  parseAbiItem,
+} from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { foundry } from "viem/chains";
 import { escrowAbi } from "@/lib/escrowAbi";
+import { factoryAbi } from "@/lib/factoryAbi";
 
 const RPC = process.env.ESCROW_RPC_URL!;
-const ADDRESS = process.env.ESCROW_ADDRESS as `0x${string}`;
+const FACTORY = process.env.FACTORY_ADDRESS as `0x${string}`;
 const CLIENT_PK = process.env.CLIENT_PK as `0x${string}`;
 const PROVIDER_PK = process.env.PROVIDER_PK as `0x${string}`;
 
@@ -18,24 +28,34 @@ function wallet(role: "client" | "provider") {
   return { wc, account };
 }
 
-export async function GET() {
+function errToJson(e: any) {
+  return {
+    message: e?.shortMessage || e?.message || String(e),
+    name: e?.name,
+    cause: e?.cause ? String(e.cause) : undefined,
+  };
+}
+
+async function readEscrowSnapshot(escrow: `0x${string}`) {
   const [client, provider, funded, totalAmount, count] = await Promise.all([
-    publicClient.readContract({ address: ADDRESS, abi: escrowAbi, functionName: "client" }),
-    publicClient.readContract({ address: ADDRESS, abi: escrowAbi, functionName: "provider" }),
-    publicClient.readContract({ address: ADDRESS, abi: escrowAbi, functionName: "funded" }),
-    publicClient.readContract({ address: ADDRESS, abi: escrowAbi, functionName: "totalAmount" }),
-    publicClient.readContract({ address: ADDRESS, abi: escrowAbi, functionName: "milestonesCount" }),
+    publicClient.readContract({ address: escrow, abi: escrowAbi, functionName: "client" }),
+    publicClient.readContract({ address: escrow, abi: escrowAbi, functionName: "provider" }),
+    publicClient.readContract({ address: escrow, abi: escrowAbi, functionName: "funded" }),
+    publicClient.readContract({ address: escrow, abi: escrowAbi, functionName: "totalAmount" }),
+    publicClient.readContract({ address: escrow, abi: escrowAbi, functionName: "milestonesCount" }),
   ]);
 
   const idxs = Array.from({ length: Number(count) }, (_, i) => i);
+
   const milestones = await Promise.all(
     idxs.map(async (i) => {
       const m: any = await publicClient.readContract({
-        address: ADDRESS,
+        address: escrow,
         abi: escrowAbi,
         functionName: "getMilestone",
         args: [BigInt(i)],
       });
+
       return {
         i,
         amountEth: formatEther(m.amount),
@@ -47,78 +67,192 @@ export async function GET() {
     })
   );
 
-  return NextResponse.json({
-    address: ADDRESS,
-    rpc: RPC,
-    client,
-    provider,
+  return {
+    address: escrow,
     funded,
     totalAmountEth: formatEther(totalAmount),
+    client,
+    provider,
     count: Number(count),
     milestones,
-  });
+  };
+}
+
+export async function GET(req: Request) {
+  try {
+    if (!RPC || !FACTORY) {
+      return NextResponse.json(
+        { ok: false, error: { message: "Missing ESCROW_RPC_URL or FACTORY_ADDRESS" } },
+        { status: 500 }
+      );
+    }
+
+    const url = new URL(req.url);
+    const selectedParam = url.searchParams.get("escrow");
+
+    const event = parseAbiItem(
+      "event EscrowCreated(address indexed escrow, address indexed client, address indexed provider)"
+    );
+
+    const logs = await publicClient.getLogs({
+      address: FACTORY,
+      event,
+      fromBlock: 0n,
+      toBlock: "latest",
+    });
+
+    const escrows = logs
+      .map((l: any) => l.args?.escrow as string)
+      .filter((x: string) => isAddress(x))
+      .map((x: string) => getAddress(x) as `0x${string}`)
+      .reverse(); // newest first
+
+    const selected =
+      selectedParam && isAddress(selectedParam)
+        ? (getAddress(selectedParam) as `0x${string}`)
+        : escrows[0] ?? null;
+
+    const snapshot = selected ? await readEscrowSnapshot(selected) : null;
+
+    return NextResponse.json({
+      ok: true,
+      rpc: RPC,
+      factory: FACTORY,
+      escrows,
+      selected,
+      snapshot,
+    });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: errToJson(e) }, { status: 500 });
+  }
 }
 
 export async function POST(req: Request) {
-  const body = await req.json();
-  const action = body?.action as string;
+  try {
+    const body = await req.json();
+    const action = body?.action as string;
 
-  if (action === "fund") {
-    const { wc, account } = wallet("client");
-    const totalAmount = await publicClient.readContract({ address: ADDRESS, abi: escrowAbi, functionName: "totalAmount" });
-    const hash = await wc.writeContract({
-      address: ADDRESS,
-      abi: escrowAbi,
-      functionName: "fund",
-      args: [],
-      value: totalAmount,
-      account,
-    });
-    await publicClient.waitForTransactionReceipt({ hash });
-    return NextResponse.json({ ok: true, hash });
+    if (!RPC || !FACTORY) {
+      return NextResponse.json(
+        { ok: false, error: { message: "Missing ESCROW_RPC_URL or FACTORY_ADDRESS" } },
+        { status: 500 }
+      );
+    }
+
+    if (action === "createEscrow") {
+      // demo template: fixed addresses (anvil default)
+      const clientAddr = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266" as `0x${string}`;
+      const providerAddr = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8" as `0x${string}`;
+
+      const amounts = [parseEther("0.3"), parseEther("0.7")];
+
+      const nowSec = Math.floor(Date.now() / 1000);
+      const deadlines = [nowSec + 7 * 24 * 60 * 60, nowSec + 14 * 24 * 60 * 60];
+
+      const { wc, account } = wallet("client");
+
+      const hash = await wc.writeContract({
+        address: FACTORY,
+        abi: factoryAbi,
+        functionName: "createEscrow",
+        args: [clientAddr, providerAddr, amounts, deadlines],
+        account,
+      });
+
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+
+      // parse event from receipt logs
+      let escrow: `0x${string}` | null = null;
+      for (const l of receipt.logs) {
+        try {
+          const parsed = publicClient.parseEventLog({ abi: factoryAbi, ...l });
+          if (parsed.eventName === "EscrowCreated") {
+            const addr = parsed.args.escrow as string;
+            if (isAddress(addr)) escrow = getAddress(addr) as `0x${string}`;
+          }
+        } catch {}
+      }
+
+      return NextResponse.json({ ok: true, action, hash, escrow });
+    }
+
+    const escrowParam = body?.escrow as string;
+    if (!isAddress(escrowParam)) {
+      return NextResponse.json({ ok: false, error: { message: "escrow address required" } }, { status: 400 });
+    }
+    const ESCROW = getAddress(escrowParam) as `0x${string}`;
+
+    if (action === "fund") {
+      const { wc, account } = wallet("client");
+      const totalAmount = await publicClient.readContract({
+        address: ESCROW,
+        abi: escrowAbi,
+        functionName: "totalAmount",
+      });
+
+      const hash = await wc.writeContract({
+        address: ESCROW,
+        abi: escrowAbi,
+        functionName: "fund",
+        args: [],
+        value: totalAmount,
+        account,
+      });
+
+      await publicClient.waitForTransactionReceipt({ hash });
+      return NextResponse.json({ ok: true, action, hash });
+    }
+
+    if (action === "submit") {
+      const { i, proofURI } = body;
+      const { wc, account } = wallet("provider");
+
+      const hash = await wc.writeContract({
+        address: ESCROW,
+        abi: escrowAbi,
+        functionName: "submit",
+        args: [BigInt(i), String(proofURI)],
+        account,
+      });
+
+      await publicClient.waitForTransactionReceipt({ hash });
+      return NextResponse.json({ ok: true, action, hash });
+    }
+
+    if (action === "approve") {
+      const { i } = body;
+      const { wc, account } = wallet("client");
+
+      const hash = await wc.writeContract({
+        address: ESCROW,
+        abi: escrowAbi,
+        functionName: "approve",
+        args: [BigInt(i)],
+        account,
+      });
+
+      await publicClient.waitForTransactionReceipt({ hash });
+      return NextResponse.json({ ok: true, action, hash });
+    }
+
+    if (action === "reject") {
+      const { i, reasonURI } = body;
+      const { wc, account } = wallet("client");
+
+      const hash = await wc.writeContract({
+        address: ESCROW,
+        abi: escrowAbi,
+        functionName: "reject",
+        args: [BigInt(i), String(reasonURI)],
+        account,
+      });
+
+      await publicClient.waitForTransactionReceipt({ hash });
+      return NextResponse.json({ ok: true, action, hash });
+    }
+
+    return NextResponse.json({ ok: false, error: { message: "unknown action" } }, { status: 400 });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: errToJson(e) }, { status: 500 });
   }
-
-  if (action === "submit") {
-    const { i, proofURI } = body;
-    const { wc, account } = wallet("provider");
-    const hash = await wc.writeContract({
-      address: ADDRESS,
-      abi: escrowAbi,
-      functionName: "submit",
-      args: [BigInt(i), String(proofURI)],
-      account,
-    });
-    await publicClient.waitForTransactionReceipt({ hash });
-    return NextResponse.json({ ok: true, hash });
-  }
-
-  if (action === "approve") {
-    const { i } = body;
-    const { wc, account } = wallet("client");
-    const hash = await wc.writeContract({
-      address: ADDRESS,
-      abi: escrowAbi,
-      functionName: "approve",
-      args: [BigInt(i)],
-      account,
-    });
-    await publicClient.waitForTransactionReceipt({ hash });
-    return NextResponse.json({ ok: true, hash });
-  }
-
-  if (action === "reject") {
-    const { i, reasonURI } = body;
-    const { wc, account } = wallet("client");
-    const hash = await wc.writeContract({
-      address: ADDRESS,
-      abi: escrowAbi,
-      functionName: "reject",
-      args: [BigInt(i), String(reasonURI)],
-      account,
-    });
-    await publicClient.waitForTransactionReceipt({ hash });
-    return NextResponse.json({ ok: true, hash });
-  }
-
-  return NextResponse.json({ ok: false, error: "unknown action" }, { status: 400 });
 }

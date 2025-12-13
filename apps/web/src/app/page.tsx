@@ -2,30 +2,37 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type ApiState = {
-  ok: boolean;
-  address: string;
-  rpc: string;
-  client: string;
-  provider: string;
-  funded: boolean;
-  totalAmountEth: string;
-  count: number;
-  milestones: {
-    i: number;
-    amountEth: string;
-    deadline: number;
-    status: number;
-    proofURI: string;
-    reasonURI: string;
-  }[];
+type Milestone = {
+  i: number;
+  amountEth: string;
+  deadline: number;
+  status: number;
+  proofURI: string;
+  reasonURI: string;
 };
 
-const statusLabel = (s: number) =>
-  ["Pending", "Submitted", "Approved", "Rejected", "Paid"][s] ?? `Unknown(${s})`;
+type Snapshot = {
+  address: string;
+  funded: boolean;
+  totalAmountEth: string;
+  client: string;
+  provider: string;
+  count: number;
+  milestones: Milestone[];
+};
 
-function statusBadgeStyle(s: number) {
-  // Pending, Submitted, Approved, Rejected, Paid
+type ApiState = {
+  ok: boolean;
+  rpc: string;
+  factory: string;
+  escrows: string[];
+  selected: string | null;
+  snapshot: Snapshot | null;
+};
+
+const statusLabel = (s: number) => ["Pending", "Submitted", "Approved", "Rejected", "Paid"][s] ?? `Unknown(${s})`;
+
+function statusBadgeStyle(s: number): React.CSSProperties {
   const map: Record<number, React.CSSProperties> = {
     0: { background: "#eef2ff", color: "#3730a3", borderColor: "#c7d2fe" },
     1: { background: "#fff7ed", color: "#9a3412", borderColor: "#fed7aa" },
@@ -36,7 +43,7 @@ function statusBadgeStyle(s: number) {
   return map[s] ?? { background: "#f3f4f6", color: "#111827", borderColor: "#e5e7eb" };
 }
 
-function monospaceTrim(addr?: string) {
+function trimAddr(addr?: string) {
   if (!addr) return "";
   if (addr.length < 12) return addr;
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
@@ -44,83 +51,90 @@ function monospaceTrim(addr?: string) {
 
 export default function Home() {
   const [state, setState] = useState<ApiState | null>(null);
-  const [selected, setSelected] = useState<number>(0);
+  const [selectedMilestoneIdx, setSelectedMilestoneIdx] = useState(0);
 
   const [proofURI, setProofURI] = useState("ipfs://proof-0");
   const [reasonURI, setReasonURI] = useState("ipfs://reason");
 
   const [busy, setBusy] = useState(false);
   const [log, setLog] = useState<string>("");
-  const [showRaw, setShowRaw] = useState(false);
+
+  const selectedEscrow = state?.selected ?? null;
+  const snap = state?.snapshot ?? null;
 
   const selectedMilestone = useMemo(() => {
-    if (!state) return null;
-    return state.milestones?.find((m) => m.i === selected) ?? null;
-  }, [state, selected]);
+    if (!snap) return null;
+    return snap.milestones.find((m) => m.i === selectedMilestoneIdx) ?? null;
+  }, [snap, selectedMilestoneIdx]);
 
-  async function refresh() {
-    const res = await fetch("/api/escrow", { cache: "no-store" });
+  async function refresh(escrow?: string | null) {
+    const qs = escrow ? `?escrow=${escrow}` : "";
+    const res = await fetch(`/api/escrow${qs}`, { cache: "no-store" });
     const text = await res.text();
     try {
       const data = JSON.parse(text);
       setState(data);
-      if (typeof data?.milestones?.length === "number" && data.milestones.length > 0) {
-        if (!data.milestones.some((m: any) => m.i === selected)) setSelected(0);
-      }
+      // keep milestone idx valid
+      const count = data?.snapshot?.milestones?.length ?? 0;
+      if (count > 0 && selectedMilestoneIdx >= count) setSelectedMilestoneIdx(0);
     } catch {
       setLog(text || "(empty response)");
     }
   }
 
-  async function act(action: string, payload: any = {}) {
+  async function post(action: string, payload: any = {}) {
+    setBusy(true);
     try {
-      setBusy(true);
       setLog("...");
       const res = await fetch("/api/escrow", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action, ...payload }),
       });
-
       const text = await res.text();
       try {
-        const data = JSON.parse(text);
-        setLog(JSON.stringify(data, null, 2));
+        setLog(JSON.stringify(JSON.parse(text), null, 2));
       } catch {
         setLog(text || "(empty response)");
       }
-
-      await refresh();
-    } catch (e: any) {
-      setLog(e?.message || String(e));
     } finally {
       setBusy(false);
     }
   }
 
+  async function createNewEscrow() {
+    await post("createEscrow");
+    // refresh and auto-select newest by calling refresh without param (server picks latest)
+    await refresh(null);
+  }
+
+  async function act(action: string, payload: any = {}) {
+    if (!selectedEscrow) return;
+    await post(action, { escrow: selectedEscrow, ...payload });
+    await refresh(selectedEscrow);
+  }
+
   useEffect(() => {
-    refresh().catch((e) => setLog(e?.message || String(e)));
+    refresh(null).catch((e) => setLog(e?.message || String(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const canFund = !!state && !state.funded;
+  const canFund = !!snap && !snap.funded;
   const canSubmit =
-    !!state &&
-    state.funded &&
+    !!snap &&
+    snap.funded &&
     !!selectedMilestone &&
-    (selectedMilestone.status === 0 || selectedMilestone.status === 3); // Pending or Rejected
-  const canApprove = !!state && state.funded && !!selectedMilestone && selectedMilestone.status === 1; // Submitted
-  const canReject = !!state && state.funded && !!selectedMilestone && selectedMilestone.status === 1; // Submitted
+    (selectedMilestone.status === 0 || selectedMilestone.status === 3);
+  const canApprove = !!snap && snap.funded && !!selectedMilestone && selectedMilestone.status === 1;
+  const canReject = !!snap && snap.funded && !!selectedMilestone && selectedMilestone.status === 1;
 
   const container: React.CSSProperties = {
     padding: 24,
     fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial",
-    maxWidth: 1050,
+    maxWidth: 1100,
     margin: "0 auto",
     lineHeight: 1.4,
   };
-
-  const row: React.CSSProperties = { display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" };
 
   const card: React.CSSProperties = {
     border: "1px solid #e5e7eb",
@@ -131,7 +145,7 @@ export default function Home() {
 
   const grid: React.CSSProperties = {
     display: "grid",
-    gridTemplateColumns: "1fr 1fr",
+    gridTemplateColumns: "360px 1fr",
     gap: 12,
   };
 
@@ -153,10 +167,7 @@ export default function Home() {
     cursor: "pointer",
   };
 
-  const btnDisabled: React.CSSProperties = {
-    opacity: 0.5,
-    cursor: "not-allowed",
-  };
+  const btnDisabled: React.CSSProperties = { opacity: 0.5, cursor: "not-allowed" };
 
   const input: React.CSSProperties = {
     border: "1px solid #d1d5db",
@@ -167,20 +178,19 @@ export default function Home() {
 
   return (
     <main style={container}>
-      <div style={{ ...row, justifyContent: "space-between" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
         <div>
-          <h1 style={{ margin: 0 }}>Milestone Escrow</h1>
+          <h1 style={{ margin: 0 }}>Milestone Escrow (Factory Demo)</h1>
           <div style={{ color: "#6b7280", marginTop: 4 }}>
-            Anvil in Codespaces. Server signs tx (demo).
+            Factory creates new escrows. No env address swapping.
           </div>
         </div>
-
-        <div style={row}>
-          <button style={btnGhost} onClick={refresh} disabled={busy}>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <button style={btnGhost} onClick={() => refresh(selectedEscrow)} disabled={busy}>
             Refresh
           </button>
-          <button style={{ ...btnGhost, ...(showRaw ? {} : {}) }} onClick={() => setShowRaw((v) => !v)}>
-            {showRaw ? "Hide raw" : "Show raw"}
+          <button style={{ ...btn, ...(busy ? btnDisabled : {}) }} onClick={createNewEscrow} disabled={busy}>
+            Create new escrow
           </button>
         </div>
       </div>
@@ -189,17 +199,54 @@ export default function Home() {
 
       <div style={grid}>
         <section style={card}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+          <div style={{ fontWeight: 800 }}>Escrows</div>
+          <div style={{ color: "#6b7280", marginTop: 4, fontSize: 13 }}>
+            Factory: <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>{state?.factory ?? "—"}</span>
+          </div>
+
+          <div style={{ height: 12 }} />
+
+          <div style={{ display: "grid", gap: 8 }}>
+            {(state?.escrows ?? []).map((addr) => {
+              const sel = addr === selectedEscrow;
+              return (
+                <button
+                  key={addr}
+                  onClick={() => refresh(addr)}
+                  style={{
+                    textAlign: "left",
+                    border: "1px solid",
+                    borderColor: sel ? "#111827" : "#e5e7eb",
+                    background: sel ? "#f9fafb" : "#fff",
+                    borderRadius: 12,
+                    padding: 12,
+                    cursor: "pointer",
+                  }}
+                >
+                  <div style={{ fontWeight: 800 }}>{trimAddr(addr)}</div>
+                  <div style={{ color: "#6b7280", fontSize: 12, marginTop: 2, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>
+                    {addr}
+                  </div>
+                </button>
+              );
+            })}
+            {!state?.escrows?.length ? (
+              <div style={{ color: "#6b7280" }}>
+                No escrows yet. Click <b>Create new escrow</b>.
+              </div>
+            ) : null}
+          </div>
+        </section>
+
+        <section style={card}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
             <div>
-              <div style={{ fontWeight: 700 }}>Escrow</div>
+              <div style={{ fontWeight: 800 }}>Selected Escrow</div>
               <div style={{ color: "#6b7280", marginTop: 4 }}>
-                {state?.address ? (
-                  <>
-                    <span title={state.address}>{monospaceTrim(state.address)}</span>
-                    <span style={{ marginLeft: 8, fontSize: 12, color: "#9ca3af" }}>{state.address}</span>
-                  </>
+                {selectedEscrow ? (
+                  <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>{selectedEscrow}</span>
                 ) : (
-                  "loading..."
+                  "—"
                 )}
               </div>
             </div>
@@ -209,126 +256,107 @@ export default function Home() {
                 padding: "6px 10px",
                 borderRadius: 999,
                 border: "1px solid #e5e7eb",
-                background: state?.funded ? "#f0fdf4" : "#fefce8",
-                color: state?.funded ? "#166534" : "#92400e",
-                height: "fit-content",
-                fontWeight: 700,
+                background: snap?.funded ? "#f0fdf4" : "#fefce8",
+                color: snap?.funded ? "#166534" : "#92400e",
+                fontWeight: 800,
               }}
             >
-              {state?.funded ? "Funded" : "Not funded"}
+              {snap ? (snap.funded ? "Funded" : "Not funded") : "No snapshot"}
             </div>
           </div>
 
           <div style={{ height: 12 }} />
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <div>
-              <div style={{ fontSize: 12, color: "#6b7280" }}>Client</div>
-              <div style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>
-                {state?.client ?? "—"}
-              </div>
-            </div>
-            <div>
-              <div style={{ fontSize: 12, color: "#6b7280" }}>Provider</div>
-              <div style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>
-                {state?.provider ?? "—"}
-              </div>
-            </div>
-            <div>
-              <div style={{ fontSize: 12, color: "#6b7280" }}>Total</div>
-              <div style={{ fontWeight: 700 }}>{state?.totalAmountEth ?? "—"} ETH</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 12, color: "#6b7280" }}>Milestones</div>
-              <div style={{ fontWeight: 700 }}>{state?.count ?? "—"}</div>
-            </div>
-          </div>
-
-          <div style={{ height: 12 }} />
-
-          <div style={row}>
-            <button
-              style={{ ...btn, ...(busy || !canFund ? btnDisabled : {}) }}
-              disabled={busy || !canFund}
-              onClick={() => act("fund")}
-              title={state?.funded ? "Already funded" : "Fund escrow with total amount"}
-            >
-              fund() as CLIENT
-            </button>
-
-            <div style={{ color: "#6b7280", fontSize: 13 }}>
-              Tip: funded가 true면 fund는 실패가 정상.
-            </div>
-          </div>
-        </section>
-
-        <section style={card}>
-          <div style={{ fontWeight: 700 }}>Selected milestone</div>
-          <div style={{ color: "#6b7280", marginTop: 4 }}>
-            index {selected} {selectedMilestone ? `• ${selectedMilestone.amountEth} ETH` : ""}
-          </div>
-
-          <div style={{ height: 12 }} />
-
-          {selectedMilestone ? (
-            <div style={{ display: "grid", gap: 10 }}>
-              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                <span
-                  style={{
-                    padding: "6px 10px",
-                    borderRadius: 999,
-                    border: "1px solid",
-                    fontWeight: 700,
-                    ...statusBadgeStyle(selectedMilestone.status),
-                  }}
-                >
-                  {statusLabel(selectedMilestone.status)}
-                </span>
-                <span style={{ color: "#6b7280", fontSize: 13 }}>
-                  deadline: {selectedMilestone.deadline}
-                </span>
-              </div>
-
-              <div>
-                <div style={{ fontSize: 12, color: "#6b7280" }}>proofURI</div>
-                <div style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>
-                  {selectedMilestone.proofURI || "—"}
+          {snap ? (
+            <>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 12, color: "#6b7280" }}>Client</div>
+                  <div style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>{snap.client}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, color: "#6b7280" }}>Provider</div>
+                  <div style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>{snap.provider}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, color: "#6b7280" }}>Total</div>
+                  <div style={{ fontWeight: 800 }}>{snap.totalAmountEth} ETH</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, color: "#6b7280" }}>Milestones</div>
+                  <div style={{ fontWeight: 800 }}>{snap.count}</div>
                 </div>
               </div>
 
-              <div>
-                <div style={{ fontSize: 12, color: "#6b7280" }}>reasonURI</div>
-                <div style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>
-                  {selectedMilestone.reasonURI || "—"}
-                </div>
+              <div style={{ height: 12 }} />
+
+              <button style={{ ...btn, ...(busy || !canFund ? btnDisabled : {}) }} disabled={busy || !canFund} onClick={() => act("fund")}>
+                fund() as CLIENT
+              </button>
+
+              <div style={{ height: 14 }} />
+
+              <div style={{ fontWeight: 800 }}>Milestones</div>
+              <div style={{ height: 10 }} />
+
+              <div style={{ display: "grid", gap: 8 }}>
+                {snap.milestones.map((m) => {
+                  const isSel = m.i === selectedMilestoneIdx;
+                  return (
+                    <button
+                      key={m.i}
+                      onClick={() => setSelectedMilestoneIdx(m.i)}
+                      style={{
+                        textAlign: "left",
+                        border: "1px solid",
+                        borderColor: isSel ? "#111827" : "#e5e7eb",
+                        background: isSel ? "#f9fafb" : "#fff",
+                        borderRadius: 12,
+                        padding: 12,
+                        cursor: "pointer",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                          <span style={{ fontWeight: 900 }}>#{m.i}</span>
+                          <span style={{ color: "#6b7280" }}>{m.amountEth} ETH</span>
+                        </div>
+                        <span style={{ padding: "6px 10px", borderRadius: 999, border: "1px solid", fontWeight: 800, ...statusBadgeStyle(m.status) }}>
+                          {statusLabel(m.status)}
+                        </span>
+                      </div>
+
+                      <div style={{ height: 8 }} />
+
+                      <div style={{ fontSize: 12, color: "#6b7280" }}>
+                        proof: <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>{m.proofURI || "—"}</span>
+                      </div>
+                      <div style={{ fontSize: 12, color: "#6b7280" }}>
+                        reason: <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>{m.reasonURI || "—"}</span>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
 
-              <div style={{ height: 6 }} />
+              <div style={{ height: 14 }} />
+
+              <div style={{ fontWeight: 800 }}>Actions (selected milestone #{selectedMilestoneIdx})</div>
+              <div style={{ height: 10 }} />
 
               <div style={{ display: "grid", gap: 10 }}>
                 <div style={{ display: "grid", gridTemplateColumns: "120px 1fr 170px", gap: 10 }}>
                   <div style={{ display: "flex", alignItems: "center", color: "#6b7280" }}>submit</div>
                   <input style={input} value={proofURI} onChange={(e) => setProofURI(e.target.value)} />
-                  <button
-                    style={{ ...btn, ...(busy || !canSubmit ? btnDisabled : {}) }}
-                    disabled={busy || !canSubmit}
-                    onClick={() => act("submit", { i: selected, proofURI })}
-                    title={!state?.funded ? "Not funded" : "Provider submits proof for milestone"}
-                  >
+                  <button style={{ ...btn, ...(busy || !canSubmit ? btnDisabled : {}) }} disabled={busy || !canSubmit} onClick={() => act("submit", { i: selectedMilestoneIdx, proofURI })}>
                     submit()
                   </button>
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "120px 1fr 170px", gap: 10 }}>
                   <div style={{ display: "flex", alignItems: "center", color: "#6b7280" }}>approve</div>
-                  <div style={{ color: "#6b7280", display: "flex", alignItems: "center" }}>
-                    requires status = Submitted
-                  </div>
-                  <button
-                    style={{ ...btn, ...(busy || !canApprove ? btnDisabled : {}) }}
-                    disabled={busy || !canApprove}
-                    onClick={() => act("approve", { i: selected })}
-                  >
+                  <div style={{ color: "#6b7280", display: "flex", alignItems: "center" }}>requires status = Submitted</div>
+                  <button style={{ ...btn, ...(busy || !canApprove ? btnDisabled : {}) }} disabled={busy || !canApprove} onClick={() => act("approve", { i: selectedMilestoneIdx })}>
                     approve()
                   </button>
                 </div>
@@ -336,18 +364,14 @@ export default function Home() {
                 <div style={{ display: "grid", gridTemplateColumns: "120px 1fr 170px", gap: 10 }}>
                   <div style={{ display: "flex", alignItems: "center", color: "#6b7280" }}>reject</div>
                   <input style={input} value={reasonURI} onChange={(e) => setReasonURI(e.target.value)} />
-                  <button
-                    style={{ ...btnGhost, ...(busy || !canReject ? btnDisabled : {}) }}
-                    disabled={busy || !canReject}
-                    onClick={() => act("reject", { i: selected, reasonURI })}
-                  >
+                  <button style={{ ...btnGhost, ...(busy || !canReject ? btnDisabled : {}) }} disabled={busy || !canReject} onClick={() => act("reject", { i: selectedMilestoneIdx, reasonURI })}>
                     reject()
                   </button>
                 </div>
               </div>
-            </div>
+            </>
           ) : (
-            <div style={{ color: "#6b7280" }}>No milestone selected.</div>
+            <div style={{ color: "#6b7280" }}>Select an escrow or create a new one.</div>
           )}
         </section>
       </div>
@@ -355,100 +379,16 @@ export default function Home() {
       <div style={{ height: 12 }} />
 
       <section style={card}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-          <div style={{ fontWeight: 700 }}>Milestones</div>
-          <div style={{ color: "#6b7280", fontSize: 13 }}>클릭해서 선택하면 오른쪽 액션이 그 index로 동작</div>
-        </div>
-
-        <div style={{ height: 12 }} />
-
-        <div style={{ display: "grid", gap: 8 }}>
-          {state?.milestones?.map((m) => {
-            const isSel = m.i === selected;
-            return (
-              <button
-                key={m.i}
-                onClick={() => setSelected(m.i)}
-                style={{
-                  textAlign: "left",
-                  border: "1px solid",
-                  borderColor: isSel ? "#111827" : "#e5e7eb",
-                  background: isSel ? "#f9fafb" : "#fff",
-                  borderRadius: 12,
-                  padding: 12,
-                  cursor: "pointer",
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                    <span style={{ fontWeight: 800 }}>#{m.i}</span>
-                    <span style={{ color: "#6b7280" }}>{m.amountEth} ETH</span>
-                  </div>
-                  <span
-                    style={{
-                      padding: "6px 10px",
-                      borderRadius: 999,
-                      border: "1px solid",
-                      fontWeight: 700,
-                      ...statusBadgeStyle(m.status),
-                    }}
-                  >
-                    {statusLabel(m.status)}
-                  </span>
-                </div>
-
-                <div style={{ height: 8 }} />
-
-                <div style={{ fontSize: 13, color: "#6b7280" }}>
-                  proof: <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>{m.proofURI || "—"}</span>
-                </div>
-                <div style={{ fontSize: 13, color: "#6b7280" }}>
-                  reason: <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>{m.reasonURI || "—"}</span>
-                </div>
-              </button>
-            );
-          })}
-          {!state?.milestones?.length ? <div style={{ color: "#6b7280" }}>loading...</div> : null}
-        </div>
-      </section>
-
-      <div style={{ height: 12 }} />
-
-      <section style={card}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-          <div style={{ fontWeight: 700 }}>Log</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+          <div style={{ fontWeight: 800 }}>Log</div>
           <button style={btnGhost} onClick={() => setLog("")}>
             Clear
           </button>
         </div>
-
         <div style={{ height: 10 }} />
-
-        <pre
-          style={{
-            margin: 0,
-            whiteSpace: "pre-wrap",
-            background: "#0b1020",
-            color: "#c7f9cc",
-            borderRadius: 12,
-            padding: 12,
-            minHeight: 120,
-            fontSize: 13,
-            overflowX: "auto",
-          }}
-        >
+        <pre style={{ margin: 0, whiteSpace: "pre-wrap", background: "#0b1020", color: "#c7f9cc", borderRadius: 12, padding: 12, minHeight: 120, fontSize: 13 }}>
           {log || "(no logs yet)"}
         </pre>
-
-        {showRaw && (
-          <>
-            <div style={{ height: 12 }} />
-            <div style={{ fontWeight: 700, marginBottom: 8 }}>Raw API snapshot</div>
-            <pre style={{ margin: 0, whiteSpace: "pre-wrap", background: "#f6f6f6", padding: 12, borderRadius: 12 }}>
-              {state ? JSON.stringify(state, null, 2) : "loading..."}
-            </pre>
-          </>
-        )}
       </section>
     </main>
   );
