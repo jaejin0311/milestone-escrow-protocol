@@ -142,12 +142,12 @@ forge script script/DeployFactory.s.sol:DeployFactory \
 ```bash
 ESCROW_RPC_URL=http://127.0.0.1:8545
 ESCROW_ADDRESS=0xYOUR_ESCROW_ADDRESS
-
+```
 #### Option A) Anvil (Codespaces/Local)
-```bash
 ESCROW_RPC_URL=http://127.0.0.1:8545
 FACTORY_ADDRESS=0xYOUR_FACTORY_ADDRESS
 
+```bash
 # demo keys (anvil default)
 CLIENT_PK=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 PROVIDER_PK=0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
@@ -172,8 +172,6 @@ Codespaces에서 포트 3000을 열면 UI가 뜹니다.
 ⚠️ Security Note: 데모 전용입니다. .env.local에 private key가 들어갑니다. 절대 커밋하지 마세요.
 <br/>
 
-
-
 ## ✅ Demo Flow
 UI에서 순서대로:
 
@@ -190,13 +188,19 @@ Reject 플로우:
 reject(0, reasonURI) 후 submit(0, proofURI v2)
 
 <br/>
-🗺 Roadmap
+## 📝 Dev Log
+
 
 [x] Phase 1: Milestone Escrow Contract + Tests
+
 [x] Phase 2: Minimal UI demo (Codespaces-compatible)
+
 [x] Phase 3: Factory pattern (UI에서 새 escrow 생성, env 주소 교체 제거)
+
 [ ] Phase 4: Timeout / dispute window (N일 이후 claim)
+
 [ ] Phase 5: Off-chain proof (IPFS + typed metadata)
+
 [ ] Phase 6: Optional: testnet 배포 + wallet 기반 UX
 
 <br/>
@@ -209,7 +213,6 @@ LinkedIn: linkedin.com/in/jaejink
 
 <br/>
 
->
 ## 📝 Dev Log
 
 2025-12-13: Sepolia Factory 연동 + Escrow 목록 유지
