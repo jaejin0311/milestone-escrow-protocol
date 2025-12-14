@@ -9,6 +9,7 @@ type Milestone = {
   status: number;
   proofURI: string;
   reasonURI: string;
+  submittedAt: number;
 };
 
 type Snapshot = {
@@ -30,7 +31,7 @@ type ApiState = {
   snapshot: Snapshot | null;
 };
 
-const statusLabel = (s: number) => ["Pending", "Submitted", "Approved", "Rejected", "Paid"][s] ?? `Unknown(${s})`;
+const statusLabel = (s: number) => ["Pending", "Submitted", "Approved", "Rejected", "Paid", "Claimed"][s] ?? `Unknown(${s})`;
 
 function statusBadgeStyle(s: number): React.CSSProperties {
   const map: Record<number, React.CSSProperties> = {
@@ -176,6 +177,15 @@ export default function Home() {
   const m = selectedMilestone;
   const canFund = !!selectedEscrow && !busy && !!snap && !snap.funded;
 
+  const nowSec = snap ? (snap as any).chainTime ?? Math.floor(Date.now() / 1000) : Math.floor(Date.now() / 1000);
+  const readyInSec = selectedMilestone ? Math.max(0, selectedMilestone.deadline - nowSec) : 0;
+
+  const canClaim =
+    !!selectedEscrow &&
+    !!snap?.funded &&
+    !!selectedMilestone &&
+    selectedMilestone.status === 1 && // Submitted
+    readyInSec === 0;
   const canSubmit =
     !!selectedEscrow &&
     !!snap?.funded &&
@@ -484,6 +494,29 @@ export default function Home() {
                     reject()
                   </button>
                 </div>
+                
+                {/* claim is only meaningful when milestone is Submitted */}
+                {selectedMilestone && selectedMilestone.status !== 4 ? ( // 4 = Paid -> hide
+                  <div style={{ display: "grid", gridTemplateColumns: "120px 1fr 170px", gap: 10 }}>
+                    <div style={{ display: "flex", alignItems: "center", color: "#6b7280" }}>claim</div>
+
+                    <div style={{ color: "#6b7280", display: "flex", alignItems: "center" }}>
+                      {selectedMilestone.status === 0 || selectedMilestone.status === 3 
+                        ? "submit first"
+                        : selectedMilestone.status === 1
+                          ? (readyInSec === 0 ? "ready" : `ready in ${readyInSec}s`)
+                          : "not claimable"}
+                    </div>
+
+                    <button
+                      style={{ ...btn, ...(busy || !canClaim ? btnDisabled : {}) }}
+                      disabled={busy || !canClaim}
+                      onClick={() => act("claim", { i: selectedMilestoneIdx })}
+                    >
+                      claim()
+                    </button>
+                  </div>
+                ) : null}
               </div>
             </>
           ) : (

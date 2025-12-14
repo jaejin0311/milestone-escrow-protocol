@@ -14,15 +14,17 @@ export const escrowAbi = [
         {"type":"uint64","name":"deadline"},
         {"type":"uint8","name":"status"},
         {"type":"string","name":"proofURI"},
-        {"type":"string","name":"reasonURI"}
+        {"type":"string","name":"reasonURI"},
+        {"type":"uint64", "name": "submittedAt" }
       ]
     }]
   },
   { "type":"function","name":"fund","stateMutability":"payable","inputs":[],"outputs":[] },
   { "type":"function","name":"submit","stateMutability":"nonpayable","inputs":[{"type":"uint256","name":"i"},{"type":"string","name":"proofURI"}],"outputs":[] },
   { "type":"function","name":"approve","stateMutability":"nonpayable","inputs":[{"type":"uint256","name":"i"}],"outputs":[] },
-  { "type":"function","name":"reject","stateMutability":"nonpayable","inputs":[{"type":"uint256","name":"i"},{"type":"string","name":"reasonURI"}],"outputs":[] }
+  { "type":"function","name":"reject","stateMutability":"nonpayable","inputs":[{"type":"uint256","name":"i"},{"type":"string","name":"reasonURI"}],"outputs":[] },
+  { "type":"function","name":"claim","stateMutability":"nonpayable","inputs":[{"type":"uint256","name":"i"},{"type":"string","name":"reasonURI"}],"outputs":[] }
 ] as const;
 
 export const statusLabel = (s: number) =>
-  ["Pending","Submitted","Approved","Rejected","Paid"][s] ?? `Unknown(${s})`;
+  ["Pending","Submitted","Approved","Rejected","Paid", "Claimed"][s] ?? `Unknown(${s})`;

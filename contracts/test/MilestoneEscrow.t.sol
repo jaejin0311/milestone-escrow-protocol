@@ -37,4 +37,50 @@ contract MilestoneEscrowTest is Test {
 
         assertEq(provider.balance - beforeBal, 0.3 ether);
     }
+
+    function test_claim_afterDisputeWindow_paysProvider() public {
+        MilestoneEscrow e = _deploy2Milestones();
+        vm.deal(client, 1 ether);
+
+        vm.prank(client);
+        e.fund{value: 1 ether}();
+
+        vm.prank(provider);
+        e.submit(0, "ipfs://proof-0");
+
+        // 아직 3일 전이면 claim 불가
+        vm.prank(provider);
+        vm.expectRevert("DISPUTE_WINDOW");
+        e.claim(0);
+
+        // 3일 경과
+        vm.warp(block.timestamp + 3 days);
+
+        uint256 beforeBal = provider.balance;
+
+        vm.prank(provider);
+        e.claim(0);
+
+        assertEq(provider.balance - beforeBal, 0.3 ether);
+
+        MilestoneEscrow.Milestone memory m = e.getMilestone(0);
+        assertEq(uint256(m.status), uint256(MilestoneEscrow.Status.Paid));
+    }
+
+    function test_fail_claim_onlyProvider() public {
+        MilestoneEscrow e = _deploy2Milestones();
+        vm.deal(client, 1 ether);
+
+        vm.prank(client);
+        e.fund{value: 1 ether}();
+
+        vm.prank(provider);
+        e.submit(0, "ipfs://proof-0");
+
+        vm.warp(block.timestamp + 3 days);
+
+        vm.prank(client);
+        vm.expectRevert("NOT_PROVIDER");
+        e.claim(0);
+    }
 }

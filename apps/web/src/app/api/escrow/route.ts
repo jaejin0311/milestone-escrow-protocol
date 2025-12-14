@@ -139,6 +139,7 @@ async function readEscrowSnapshot(escrow: `0x${string}`) {
         status: Number(m.status),
         proofURI: m.proofURI,
         reasonURI: m.reasonURI,
+        submittedAt: Number(m.submittedAt),
       };
     })
   );
@@ -376,6 +377,71 @@ export async function POST(req: Request) {
       await publicClient.waitForTransactionReceipt({ hash });
       return NextResponse.json({ ok: true, action, hash });
     }
+
+    if (action === "claim") {
+      const { i, reasonURI } = body;
+
+      // ✅ provider로 서명
+      const { wc, account } = wallet("provider");
+
+      // ✅ 실패해도 원인 추적용 pre-snapshot
+      const [provider, client, block, m] = await Promise.all([
+        publicClient.readContract({ address: ESCROW, abi: escrowAbi, functionName: "provider" }),
+        publicClient.readContract({ address: ESCROW, abi: escrowAbi, functionName: "client" }),
+        publicClient.getBlock({ blockTag: "latest" }),
+        publicClient.readContract({
+          address: ESCROW,
+          abi: escrowAbi,
+          functionName: "getMilestone",
+          args: [i],
+        }),
+      ]);
+
+      const pre = {
+        from: account.address,
+        chainTime: Number(block.timestamp),
+        provider,
+        client,
+        milestone: {
+          status: Number((m as any).status),
+          deadline: Number((m as any).deadline),
+          submittedAt: Number((m as any).submittedAt),
+          proofURI: (m as any).proofURI,
+          reasonURI: (m as any).reasonURI,
+        },
+      };
+
+      try {
+        const hash = await wc.writeContract({
+          address: ESCROW,
+          abi: escrowAbi,
+          functionName: "claim",
+          args: [BigInt(i), String(reasonURI)],
+          account,
+        });
+
+        await publicClient.waitForTransactionReceipt({ hash });
+        return NextResponse.json({ ok: true, action, hash, pre });
+      } catch (e: any) {
+        return NextResponse.json(
+          {
+            ok: false,
+            action,
+            pre,
+            error: {
+              name: e?.name,
+              message: e?.shortMessage || e?.message || String(e),
+              cause: e?.cause?.shortMessage || e?.cause?.message,
+              revertName: e?.cause?.data?.errorName,
+              revertArgs: e?.cause?.data?.args,
+              revertReason: e?.cause?.reason,
+            },
+          },
+          { status: 400 }
+        );
+      }
+    }
+
 
     return NextResponse.json({ ok: false, error: { message: "unknown action" } }, { status: 400 });
   } catch (e: any) {

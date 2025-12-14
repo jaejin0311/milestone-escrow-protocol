@@ -10,10 +10,12 @@ contract MilestoneEscrow {
         Status status;
         string proofURI;
         string reasonURI;
+        uint64 submittedAt;
     }
 
     address public immutable client;
     address public immutable provider;
+    uint64 public constant DISPUTE_WINDOW = 3 days;
 
     bool public funded;
     uint256 public totalAmount;
@@ -58,7 +60,8 @@ contract MilestoneEscrow {
                 deadline: deadlines[i],
                 status: Status.Pending,
                 proofURI: "",
-                reasonURI: ""
+                reasonURI: "",
+                submittedAt: 0
             }));
             sum += amounts[i];
         }
@@ -75,6 +78,23 @@ contract MilestoneEscrow {
         require(i < _milestones.length, "OOB");
         return _milestones[i];
     }
+
+    function claim(uint256 i) external onlyProvider {
+        require(funded, "NOT_FUNDED");
+        require(i < _milestones.length, "OOB");
+
+        Milestone storage m = _milestones[i];
+        require(m.status == Status.Submitted, "BAD_STATUS");
+        require(m.submittedAt != 0, "NO_SUBMIT_TS");
+        require(block.timestamp >= uint256(m.submittedAt) + DISPUTE_WINDOW, "DISPUTE_WINDOW");
+
+        m.status = Status.Paid;
+        (bool ok, ) = payable(provider).call{value: m.amount}("");
+        require(ok, "PAY_FAIL");
+
+        emit Paid(i, provider, m.amount);
+    }
+
 
     function fund() external payable onlyClient {
         require(!funded, "ALREADY_FUNDED");
@@ -93,6 +113,7 @@ contract MilestoneEscrow {
 
         m.status = Status.Submitted;
         m.proofURI = proofURI;
+        m.submittedAt = uint64(block.timestamp);
 
         emit Submitted(i, proofURI);
     }
