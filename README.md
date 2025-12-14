@@ -154,11 +154,8 @@ forge script script/DeployFactory.s.sol:DeployFactory \
 출력의 Contract Address: 0x... (Factory Address)를 복사합니다.
 
 ### 3) Run Web UI
-`apps/web/.env.local` 생성:
-```bash
-ESCROW_RPC_URL=http://127.0.0.1:8545
-ESCROW_ADDRESS=0xYOUR_ESCROW_ADDRESS
-```
+`apps/web/.env.local` 생성 (절대 커밋하지 마세요):
+
 #### Option A) Anvil (Codespaces/Local)
 ESCROW_RPC_URL=http://127.0.0.1:8545
 FACTORY_ADDRESS=0xYOUR_FACTORY_ADDRESS
@@ -184,8 +181,8 @@ cd apps/web
 npm install
 npm run dev -- --hostname 0.0.0.0 --port 3000
 ```
-Codespaces에서 포트 3000을 열면 UI가 뜹니다.
-⚠️ Security Note: 데모 전용입니다. .env.local에 private key가 들어갑니다. 절대 커밋하지 마세요.
+  Codespaces에서 포트 3000을 열면 UI가 뜹니다.
+  ⚠️ Security Note: 데모 전용입니다. .env.local에 private key가 들어갑니다. 절대 커밋하지 마세요.
 <br/>
 
 ## ✅ Demo Flow
@@ -211,7 +208,7 @@ Reject 플로우:
 
 [x] Phase 3: Factory pattern (UI에서 새 escrow 생성, env 주소 교체 제거)
 
-[ ] Phase 4: Timeout / dispute window (N일 이후 claim)
+[x] Phase 4: Timeout / dispute window (N일 이후 claim)
 
 [ ] Phase 5: Off-chain proof (IPFS + typed metadata)
 
@@ -228,6 +225,17 @@ LinkedIn: linkedin.com/in/jaejink
 
 ## 📝 Dev Log
 
+2025-12-14: UI 개선 (claim UX + 상태 메시지 + 선택/정렬 안정화)
+- Added: claim 상태 안내 문구 (`submit first` / `ready in ...` / `ready`) 및 버튼 disable 조건 정리
+- Added: 성공/에러 영역 분리 표시 (Success / Error)
+- Improved: 체인 시간 기반 countdown 표시를 분 단위로 갱신 (불필요한 1초 리렌더 방지)
+- Fixed: Factory escrow 리스트 정렬/선택 동작이 refresh 및 새 생성 시에도 일관되게 유지되도록 처리
+
+2025-12-13: Sequential milestone enforcement 추가
+ - Challenge: provider가 milestone #0을 건너뛰고 #1을 먼저 제출할 수 있었음
+ - Solution: 컨트랙트에서 submit(i) 시 직전 마일스톤 Paid를 강제하고, 위반 시 PREV_NOT_PAID revert
+ - Result: “단계별 검수/정산”이 프로토콜 레벨에서 보장됨
+
 2025-12-13: Sepolia Factory 연동 + Escrow 목록 유지
  - Challenge: Alchemy Free tier의 eth_getLogs 스캔 범위 제한으로 과거 escrow 조회가 실패
  - Solution:
@@ -235,11 +243,6 @@ LinkedIn: linkedin.com/in/jaejink
    - 생성된 escrow 주소를 .data/escrows.json에 저장하여 목록 유지
    - Next.js API route에서 .env.local을 직접 읽어 서버 환경변수 꼬임을 줄임
  - Result: Sepolia에서도 UI에서 escrow 생성/선택/상태조회가 안정적으로 동작
-
-2025-12-13: Sequential milestone enforcement 추가
- - Challenge: provider가 milestone #0을 건너뛰고 #1을 먼저 제출할 수 있었음
- - Solution: 컨트랙트에서 submit(i) 시 직전 마일스톤 Paid를 강제하고, 위반 시 PREV_NOT_PAID revert
- - Result: “단계별 검수/정산”이 프로토콜 레벨에서 보장됨
 
 2025-12-13: Codespaces용 데모 안정화
  - Challenge: anvil RPC가 컨테이너 내부 127.0.0.1에 떠서 브라우저 지갑이 직접 접근 불가
