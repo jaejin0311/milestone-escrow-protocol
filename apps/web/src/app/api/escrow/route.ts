@@ -199,14 +199,29 @@ export async function GET(req: Request) {
         .map((l: any) => l.args?.escrow as string)
         .filter((x: string) => isAddress(x))
         .map((x: string) => getAddress(x) as `0x${string}`)
-        .reverse(); // newest first
     } catch {
       // ignore: RPC log range limits etc.
     }
 
-    // 4) logs + saved 합치기 (중복 제거) 후 limit 적용
-    const escrows = Array.from(new Set([...createdFromLogs, ...saved]));
+    // 4) saved(오래된->최신)를 기준으로 유지하고, logs에서 신규만 뒤에 append
+    const merged: `0x${string}`[] = [...saved];
+    const seen = new Set(merged.map((a) => a.toLowerCase()));
+
+    for (const a of createdFromLogs) {
+      const k = a.toLowerCase();
+      if (!seen.has(k)) {
+        merged.push(a);
+        seen.add(k);
+        saveEscrow(a);
+      }
+    }
+
+    // UI는 newest -> oldest가 보기 좋으니 reverse 후 limit
+    const savedNewestFirst = [...saved].reverse(); // saved는 파일이 오래된→최신이므로 뒤집기
+    const escrows = Array.from(new Set([...createdFromLogs, ...savedNewestFirst])); // 전체 최신→오래된
     const escrowsLimited = escrows.slice(0, limit);
+
+
 
 
     const selected =

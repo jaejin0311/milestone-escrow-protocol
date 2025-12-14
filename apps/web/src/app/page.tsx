@@ -89,9 +89,6 @@ export default function Home() {
     return () => clearInterval(id);
   }, []);
 
-
-
-
   const selectedMilestone = useMemo(() => {
     if (!snap) return null;
     return snap.milestones.find((m) => m.i === selectedMilestoneIdx) ?? null;
@@ -109,6 +106,7 @@ export default function Home() {
       const data = JSON.parse(text);
       setFetchedAtMs(Date.now());
       setState(data);
+      
       // keep milestone idx valid
       const ms = data?.snapshot?.milestones ?? [];
       // block providers to submit the later milestones before earlier ones are paid
@@ -144,11 +142,9 @@ export default function Home() {
       } catch {
         setLog(text || "(empty response)");
       }
-
       if (!res.ok) {
         throw new Error(json?.error?.message || text || `HTTP ${res.status}`);
       }
-
       return json;
     } finally {
       setBusy(false);
@@ -182,7 +178,7 @@ export default function Home() {
     });
 
     const created = out?.escrow as string | undefined;
-    await refresh(created ?? null, { autoPick: true });
+    await refresh(created ?? null);
   }
 
   async function act(action: string, payload: any = {}) {
@@ -195,8 +191,6 @@ export default function Home() {
       setError(e?.message || String(e));
     }
   }
-
-
 
   useEffect(() => {
     refresh(null).catch((e) => setLog(e?.message || String(e)));
