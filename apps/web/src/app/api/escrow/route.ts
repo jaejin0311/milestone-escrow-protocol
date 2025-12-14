@@ -144,6 +144,9 @@ async function readEscrowSnapshot(escrow: `0x${string}`) {
     })
   );
 
+  const block = await publicClient.getBlock();
+  const chainTime = Number(block.timestamp);
+
   return {
     address: escrow,
     funded,
@@ -151,6 +154,7 @@ async function readEscrowSnapshot(escrow: `0x${string}`) {
     client,
     provider,
     count: Number(count),
+    chainTime,
     milestones,
   };
 }

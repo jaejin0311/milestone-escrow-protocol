@@ -20,6 +20,7 @@ type Snapshot = {
   provider: string;
   count: number;
   milestones: Milestone[];
+  chainTime: number;
 };
 
 type ApiState = {
@@ -44,6 +45,20 @@ function statusBadgeStyle(s: number): React.CSSProperties {
   return map[s] ?? { background: "#f3f4f6", color: "#111827", borderColor: "#e5e7eb" };
 }
 
+function formatDuration(sec: number) {
+  let s = Math.max(0, Math.floor(sec));
+  const d = Math.floor(s / 86400);
+  s -= d * 86400;
+  const h = Math.floor(s / 3600);
+  s -= h * 3600;
+  const m = Math.ceil(s / 60); // 남은 초가 있으면 올림해서 분으로
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+
+
 function trimAddr(addr?: string) {
   if (!addr) return "";
   if (addr.length < 12) return addr;
@@ -66,6 +81,16 @@ export default function Home() {
   const [notice, setNotice] = useState<string | null>(null);
   const selectedEscrow = state?.selected ?? null;
   const snap = state?.snapshot ?? null;
+  const [fetchedAtMs, setFetchedAtMs] = useState(0);
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+
+
 
   const selectedMilestone = useMemo(() => {
     if (!snap) return null;
@@ -82,6 +107,7 @@ export default function Home() {
     const text = await res.text();
     try {
       const data = JSON.parse(text);
+      setFetchedAtMs(Date.now());
       setState(data);
       // keep milestone idx valid
       const ms = data?.snapshot?.milestones ?? [];
@@ -142,7 +168,10 @@ export default function Home() {
       .filter((n) => Number.isFinite(n) && n > 0);
 
     // convert days-from-now -> unix seconds
-    const nowSec = Math.floor(Date.now() / 1000);
+    const nowSec =
+      snap?.chainTime && fetchedAtMs
+        ? snap.chainTime + Math.floor((Date.now() - fetchedAtMs) / 1000)
+        : Math.floor(Date.now() / 1000);
     const deadlinesSec = days.map((d) => nowSec + d * 24 * 60 * 60);
 
     const out  = await post("createEscrow", {
@@ -177,7 +206,7 @@ export default function Home() {
   const m = selectedMilestone;
   const canFund = !!selectedEscrow && !busy && !!snap && !snap.funded;
 
-  const nowSec = snap ? (snap as any).chainTime ?? Math.floor(Date.now() / 1000) : Math.floor(Date.now() / 1000);
+  const nowSec = snap?.chainTime ?? Math.floor(Date.now() / 1000);
   const readyInSec = selectedMilestone ? Math.max(0, selectedMilestone.deadline - nowSec) : 0;
 
   const canClaim =
@@ -504,7 +533,7 @@ export default function Home() {
                       {selectedMilestone.status === 0 || selectedMilestone.status === 3 
                         ? "submit first"
                         : selectedMilestone.status === 1
-                          ? (readyInSec === 0 ? "ready" : `ready in ${readyInSec}s`)
+                          ? (readyInSec === 0 ? "ready" : `ready in ${formatDuration(readyInSec)}`)
                           : "not claimable"}
                     </div>
 
