@@ -95,7 +95,6 @@ contract MilestoneEscrow {
         emit Paid(i, provider, m.amount);
     }
 
-
     function fund() external payable onlyClient {
         require(!funded, "ALREADY_FUNDED");
         require(msg.value == totalAmount, "BAD_VALUE");

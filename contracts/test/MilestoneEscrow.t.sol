@@ -83,4 +83,65 @@ contract MilestoneEscrowTest is Test {
         vm.expectRevert("NOT_PROVIDER");
         e.claim(0);
     }
+
+    function test_claim_reverts_before_deadline() public {
+        MilestoneEscrow e = _deploy2Milestones();
+        // fund
+        vm.deal(client, 1 ether);
+        vm.prank(client);
+        e.fund{value: 1 ether}();
+
+        // submit milestone 0
+        vm.prank(provider);
+        e.submit(0, "ipfs://proof-0");
+
+        // 아직 deadline 전
+        vm.expectRevert(bytes("DISPUTE_WINDOW"));
+        vm.prank(provider);
+        MilestoneEscrow(e).claim(0);
+    }
+
+    function test_claim_succeeds_after_deadline_and_pays() public {
+        MilestoneEscrow e = _deploy2Milestones();
+        vm.deal(client, 1 ether);
+
+        vm.startPrank(client);
+        e.fund{value: 1 ether}();
+        vm.stopPrank();
+
+        vm.startPrank(provider);
+        e.submit(0, "ipfs://proof-0");
+        vm.stopPrank();
+
+        // deadline 이후로 워프 (getMilestone은 struct를 리턴하므로 struct로 받는다)
+        MilestoneEscrow.Milestone memory m0 = e.getMilestone(0);
+        vm.warp(uint256(m0.deadline) + 1);
+
+        uint256 beforeBal = provider.balance;
+
+        vm.prank(provider);
+        e.claim(0);
+
+        assertGt(provider.balance, beforeBal);
+
+        // 상태 확인
+        MilestoneEscrow.Milestone memory m0After = e.getMilestone(0);
+        assertEq(uint256(m0After.status), uint256(MilestoneEscrow.Status.Paid));
+    }
+
+
+    function test_claim_reverts_if_not_submitted() public {
+        MilestoneEscrow e = _deploy2Milestones();
+        vm.deal(client, 1 ether);
+
+        vm.startPrank(client);
+        e.fund{ value: e.totalAmount() }();
+        vm.stopPrank();
+
+        // 제출 안 한 상태에서 claim
+        vm.expectRevert(("BAD_STATUS"));
+        vm.prank(provider);
+        e.claim(0);
+    }
+
 }
