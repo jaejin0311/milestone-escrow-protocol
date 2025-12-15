@@ -268,7 +268,7 @@ export async function POST(req: Request) {
         );
       }
 
-      const amountsEth: string[] = Array.isArray(body?.amountsEth) ? body.amountsEth : ["0.3", "0.7"];
+      const amountsEth: string[] = Array.isArray(body?.amountsEth) ? body.amountsEth : ["0.001", "0.002"];
       const nowSec = Math.floor(Date.now() / 1000);
       const deadlinesSec: number[] = Array.isArray(body?.deadlinesSec)
         ? body.deadlinesSec
@@ -318,8 +318,8 @@ export async function POST(req: Request) {
         }
       }
       if (escrow) saveEscrow(escrow);
-      return NextResponse.json({ ok: true, action, hash, escrow, sender: account.address, clientAddr, providerAddr });
-      }
+        return NextResponse.json({ ok: true, action, hash, escrow, sender: account.address, clientAddr, providerAddr });
+    }
 
 
     const escrowParam = body?.escrow as string;
@@ -384,7 +384,6 @@ export async function POST(req: Request) {
     if (action === "reject") {
       const { i, reasonURI } = body;
       const { wc, account } = wallet("client");
-
       const hash = await wc.writeContract({
         address: ESCROW,
         abi: escrowAbi,
@@ -392,17 +391,14 @@ export async function POST(req: Request) {
         args: [BigInt(i), String(reasonURI)],
         account,
       });
-
       await publicClient.waitForTransactionReceipt({ hash });
       return NextResponse.json({ ok: true, action, hash });
     }
 
     if (action === "claim") {
       const { i, reasonURI } = body;
-
       // ✅ provider로 서명
       const { wc, account } = wallet("provider");
-
       // ✅ 실패해도 원인 추적용 pre-snapshot
       const [provider, client, block, m] = await Promise.all([
         publicClient.readContract({ address: ESCROW, abi: escrowAbi, functionName: "provider" }),
@@ -415,7 +411,6 @@ export async function POST(req: Request) {
           args: [i],
         }),
       ]);
-
       const pre = {
         from: account.address,
         chainTime: Number(block.timestamp),
@@ -429,7 +424,6 @@ export async function POST(req: Request) {
           reasonURI: (m as any).reasonURI,
         },
       };
-
       try {
         const hash = await wc.writeContract({
           address: ESCROW,
@@ -438,7 +432,6 @@ export async function POST(req: Request) {
           args: [BigInt(i), String(reasonURI)],
           account,
         });
-
         await publicClient.waitForTransactionReceipt({ hash });
         return NextResponse.json({ ok: true, action, hash, pre });
       } catch (e: any) {
@@ -460,8 +453,6 @@ export async function POST(req: Request) {
         );
       }
     }
-
-
     return NextResponse.json({ ok: false, error: { message: "unknown action" } }, { status: 400 });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: errToJson(e) }, { status: 500 });
