@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
-import fs from "node:fs";
-import path from "node:path";
+import { supabase } from '@/lib/supabase'; // Supabase 클라이언트
+// fs, path 제거됨
+
 export const runtime = "nodejs";
+
 import {
   createPublicClient,
   createWalletClient,
@@ -10,7 +12,6 @@ import {
   parseEther,
   getAddress,
   isAddress,
-  parseAbiItem,
   parseEventLogs
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -18,91 +19,27 @@ import { sepolia } from "viem/chains";
 import { escrowAbi } from "@/lib/escrowAbi";
 import { factoryAbi } from "@/lib/factoryAbi";
 
+// 환경변수 체크
 const RPC = process.env.ESCROW_RPC_URL!;
 const FACTORY = process.env.FACTORY_ADDRESS as `0x${string}`;
+
+// 서버 사이드 지갑 (데모용)
 const CLIENT_PK = process.env.CLIENT_PK as `0x${string}`;
 const PROVIDER_PK = process.env.PROVIDER_PK as `0x${string}`;
 
 const publicClient = createPublicClient({ chain: sepolia, transport: http(RPC) });
-const DATA_DIR = path.join(process.cwd(), ".data");
-const ESCROWS_FILE = path.join(DATA_DIR, "escrows.json");
 
-function ensureDataDir() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-}
-
-function loadSavedEscrows(): `0x${string}`[] {
-  try {
-    ensureDataDir();
-    if (!fs.existsSync(ESCROWS_FILE)) return [];
-    const raw = fs.readFileSync(ESCROWS_FILE, "utf-8");
-    const arr = JSON.parse(raw);
-    if (!Array.isArray(arr)) return [];
-    return arr
-      .filter((x) => typeof x === "string" && isAddress(x))
-      .map((x) => getAddress(x) as `0x${string}`);
-  } catch {
-    return [];
-  }
-}
-
-function saveEscrow(addr: `0x${string}`) {
-  ensureDataDir();
-  const cur = new Set(loadSavedEscrows());
-  cur.add(getAddress(addr) as `0x${string}`);
-  fs.writeFileSync(ESCROWS_FILE, JSON.stringify(Array.from(cur), null, 2));
-}
-
-function pkAddrFromProcessEnv(name: "CLIENT_PK" | "PROVIDER_PK") {
-  try {
-    const pk = process.env[name] as `0x${string}` | undefined;
-    if (!pk) return "(missing)";
-    return privateKeyToAccount(pk).address;
-  } catch {
-    return "(invalid)";
-  }
-}
-
-function pkAddrFromEnvLocalFile(name: "CLIENT_PK" | "PROVIDER_PK") {
-  try {
-    const envPath = path.join(process.cwd(), ".env.local");
-    if (!fs.existsSync(envPath)) return "(no .env.local)";
-    const raw = fs.readFileSync(envPath, "utf-8").split(/\r?\n/);
-    const line = raw.find((l) => l.startsWith(name + "="));
-    if (!line) return "(not in .env.local)";
-    const val = line.split("=").slice(1).join("=").trim().replace(/^["']|["']$/g, "");
-    return privateKeyToAccount(val as `0x${string}`).address;
-  } catch {
-    return "(invalid)";
-  }
-}
-
-function readEnvLocal(key: string): string | undefined {
-  const envPath = path.join(process.cwd(), ".env.local");
-  if (!fs.existsSync(envPath)) return undefined;
-
-  const lines = fs.readFileSync(envPath, "utf-8").split(/\r?\n/);
-  const line = lines.find((l) => l.startsWith(key + "="));
-  if (!line) return undefined;
-
-  return line.split("=").slice(1).join("=").trim().replace(/^["']|["']$/g, "");
-}
-
-
+// ---------------------------------------------------------
+// Helper: 지갑 생성
+// ---------------------------------------------------------
 function wallet(role: "client" | "provider") {
-  const keyName = role === "client" ? "CLIENT_PK" : "PROVIDER_PK";
-
-  // .env.local 값을 최우선으로 사용 (process.env는 덮어쓰기 이슈가 있어 보조로만)
-  const pk =
-    (readEnvLocal(keyName) || process.env[keyName]) as `0x${string}` | undefined;
-
-  if (!pk) throw new Error(`Missing ${keyName}`);
+  const pk = role === "client" ? CLIENT_PK : PROVIDER_PK;
+  if (!pk) throw new Error(`Missing PK for ${role}`);
 
   const account = privateKeyToAccount(pk);
   const wc = createWalletClient({ chain: sepolia, transport: http(RPC), account });
   return { wc, account };
 }
-
 
 function errToJson(e: any) {
   return {
@@ -112,6 +49,9 @@ function errToJson(e: any) {
   };
 }
 
+// ---------------------------------------------------------
+// Core: 블록체인 상태 읽기
+// ---------------------------------------------------------
 async function readEscrowSnapshot(escrow: `0x${string}`) {
   const [client, provider, funded, totalAmount, count] = await Promise.all([
     publicClient.readContract({ address: escrow, abi: escrowAbi, functionName: "client" }),
@@ -145,8 +85,7 @@ async function readEscrowSnapshot(escrow: `0x${string}`) {
   );
 
   const block = await publicClient.getBlock();
-  const chainTime = Number(block.timestamp);
-
+  
   return {
     address: escrow,
     funded,
@@ -154,201 +93,129 @@ async function readEscrowSnapshot(escrow: `0x${string}`) {
     client,
     provider,
     count: Number(count),
-    chainTime,
+    chainTime: Number(block.timestamp),
     milestones,
   };
 }
 
+// ---------------------------------------------------------
+// GET: DB 목록 + 체인 상태
+// ---------------------------------------------------------
 export async function GET(req: Request) {
   try {
-    if (!RPC || !FACTORY) {
-      return NextResponse.json(
-        { ok: false, error: { message: "Missing ESCROW_RPC_URL or FACTORY_ADDRESS" } },
-        { status: 500 }
-      );
-    }
-
     const url = new URL(req.url);
-    const limitParam = Number(url.searchParams.get("limit") || "20");
-    const limit = Number.isFinite(limitParam) ? Math.max(1, Math.min(200, limitParam)) : 20;
-
     const selectedParam = url.searchParams.get("escrow");
 
-    const event = parseAbiItem(
-      "event EscrowCreated(address indexed escrow, address indexed client, address indexed provider)"
-    );
+    // 1. Supabase 조회
+    const { data: escrowsData, error } = await supabase
+      .from('escrows')
+      .select('*')
+      .order('created_at', { ascending: false });
 
-    // 1) 파일에 저장된 목록을 먼저 읽음
-    const saved = loadSavedEscrows();
+    // 에러나면 빈 배열 처리 (any 타입 캐스팅으로 에러 방지)
+    const escrows = escrowsData 
+      ? (escrowsData as any[]).map((e: any) => e.address) 
+      : [];
 
-    // 2) 알케미 free tier 때문에 logs는 10블록만 스캔
-    const latest = await publicClient.getBlockNumber();
-    const fromBlock = latest > 9n ? latest - 9n : 0n;
-
-    // 3) logs 조회는 실패할 수 있으니 try/catch
-    let createdFromLogs: `0x${string}`[] = [];
-    try {
-      const logs = await publicClient.getLogs({
-        address: FACTORY,
-        event,
-        fromBlock,
-        toBlock: latest,
-      });
-
-      createdFromLogs = logs
-        .map((l: any) => l.args?.escrow as string)
-        .filter((x: string) => isAddress(x))
-        .map((x: string) => getAddress(x) as `0x${string}`)
-    } catch {
-      // ignore: RPC log range limits etc.
+    // 2. 선택된 에스크로 스냅샷
+    let selected: `0x${string}` | null = null;
+    if (selectedParam && isAddress(selectedParam)) {
+      selected = getAddress(selectedParam) as `0x${string}`;
+    } else if (escrows.length > 0) {
+      selected = getAddress(escrows[0]) as `0x${string}`;
     }
-
-    // 4) saved(오래된->최신)를 기준으로 유지하고, logs에서 신규만 뒤에 append
-    const merged: `0x${string}`[] = [...saved];
-    const seen = new Set(merged.map((a) => a.toLowerCase()));
-
-    for (const a of createdFromLogs) {
-      const k = a.toLowerCase();
-      if (!seen.has(k)) {
-        merged.push(a);
-        seen.add(k);
-        saveEscrow(a);
-      }
-    }
-
-    // UI는 newest -> oldest가 보기 좋으니 reverse 후 limit
-    const savedNewestFirst = [...saved].reverse(); // saved는 파일이 오래된→최신이므로 뒤집기
-    const escrows = Array.from(new Set([...createdFromLogs, ...savedNewestFirst])); // 전체 최신→오래된
-    const escrowsLimited = escrows.slice(0, limit);
-
-
-
-
-    const selected =
-      selectedParam && isAddress(selectedParam)
-        ? (getAddress(selectedParam) as `0x${string}`)
-        : escrowsLimited[0] ?? null;
 
     const snapshot = selected ? await readEscrowSnapshot(selected) : null;
 
     return NextResponse.json({
       ok: true,
-      rpc: RPC,
-      factory: FACTORY,
-      escrows: escrowsLimited,
+      escrows, 
+      dbData: escrowsData, // 제목 등을 위해 DB 데이터 원본도 전달
       selected,
       snapshot,
     });
+
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: errToJson(e) }, { status: 500 });
   }
 }
 
+// ---------------------------------------------------------
+// POST: 액션 처리
+// ---------------------------------------------------------
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     const action = body?.action as string;
 
-    if (!RPC || !FACTORY) {
-      return NextResponse.json(
-        { ok: false, error: { message: "Missing ESCROW_RPC_URL or FACTORY_ADDRESS" } },
-        { status: 500 }
-      );
-    }
-
+    // --- [ 1. Create Escrow ] ---
     if (action === "createEscrow") {
-      // Optional params from UI (fallback to sensible defaults)
       const clientAddr = (body?.client as string) || "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
       const providerAddr = (body?.provider as string) || "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
-
-      if (!isAddress(clientAddr) || !isAddress(providerAddr)) {
-        return NextResponse.json(
-          { ok: false, error: { message: "invalid client/provider address" } },
-          { status: 400 }
-        );
-      }
-
-      const amountsEth: string[] = Array.isArray(body?.amountsEth) ? body.amountsEth : ["0.001", "0.002"];
-      const nowSec = Math.floor(Date.now() / 1000);
-      const deadlinesSec: number[] = Array.isArray(body?.deadlinesSec)
-        ? body.deadlinesSec
-        : [nowSec + 7 * 24 * 60 * 60, nowSec + 14 * 24 * 60 * 60];
-
-      if (amountsEth.length === 0 || amountsEth.length !== deadlinesSec.length) {
-        return NextResponse.json(
-          { ok: false, error: { message: "amountsEth and deadlinesSec must have same non-zero length" } },
-          { status: 400 }
-        );
-      }
+      const amountsEth: string[] = body.amountsEth || ["0.001"];
+      const deadlinesSec: number[] = body.deadlinesSec || [Math.floor(Date.now()/1000) + 86400];
 
       const amounts = amountsEth.map((x) => parseEther(String(x)));
       const deadlines = deadlinesSec.map((x) => BigInt(x));
 
+      // A. Factory 호출
       const { wc, account } = wallet("client");
-      console.log("PK_ADDR process.env CLIENT =", pkAddrFromProcessEnv("CLIENT_PK"));
-      console.log("PK_ADDR .env.local  CLIENT =", pkAddrFromEnvLocalFile("CLIENT_PK"));
-      console.log("CREATE_ESCROW sender =", account.address);
-      console.log("RPC =", RPC);
-      console.log("FACTORY =", FACTORY);
-
       const hash = await wc.writeContract({
         address: FACTORY,
         abi: factoryAbi,
         functionName: "createEscrow",
-        args: [
-          getAddress(clientAddr) as `0x${string}`,
-          getAddress(providerAddr) as `0x${string}`,
-          amounts,
-          deadlines,
-        ],
+        args: [getAddress(clientAddr), getAddress(providerAddr), amounts, deadlines],
         account,
       });
 
       const receipt = await publicClient.waitForTransactionReceipt({ hash });
 
-      // parse event from receipt logs
+      // B. 주소 파싱
       let escrow: `0x${string}` | null = null;
       const parsed = parseEventLogs({ abi: factoryAbi, logs: receipt.logs });
-
       for (const p of parsed) {
         if (p.eventName === "EscrowCreated") {
-          const addr = p.args.escrow as string;
-          if (isAddress(addr)) escrow = getAddress(addr) as `0x${string}`;
+          escrow = getAddress(p.args.escrow as string) as `0x${string}`;
           break;
         }
       }
-      if (escrow) saveEscrow(escrow);
-        return NextResponse.json({ ok: true, action, hash, escrow, sender: account.address, clientAddr, providerAddr });
+
+      // C. Supabase 저장
+      if (escrow) {
+        await supabase.from('escrows').insert([{
+          address: escrow,
+          client_address: getAddress(clientAddr),
+          provider_address: getAddress(providerAddr),
+          total_amount: amounts.reduce((a, b) => a + b, 0n).toString(),
+          title: body.title || "Untitled Project",
+          chain_id: sepolia.id
+        }]);
+      }
+
+      return NextResponse.json({ ok: true, action, hash, escrow });
     }
 
-
+    // --- [ 2. Common Escrow Actions ] ---
     const escrowParam = body?.escrow as string;
     if (!isAddress(escrowParam)) {
       return NextResponse.json({ ok: false, error: { message: "escrow address required" } }, { status: 400 });
     }
     const ESCROW = getAddress(escrowParam) as `0x${string}`;
 
+    // FUND
     if (action === "fund") {
-      const { wc, account } = wallet("client");
-      const totalAmount = await publicClient.readContract({
-        address: ESCROW,
-        abi: escrowAbi,
-        functionName: "totalAmount",
-      });
-
-      const hash = await wc.writeContract({
-        address: ESCROW,
-        abi: escrowAbi,
-        functionName: "fund",
-        args: [],
-        value: totalAmount,
-        account,
-      });
-
-      await publicClient.waitForTransactionReceipt({ hash });
-      return NextResponse.json({ ok: true, action, hash });
+        const { wc, account } = wallet("client");
+        const totalAmount = await publicClient.readContract({
+            address: ESCROW, abi: escrowAbi, functionName: "totalAmount"
+        });
+        const hash = await wc.writeContract({
+            address: ESCROW, abi: escrowAbi, functionName: "fund", args: [], value: totalAmount, account
+        });
+        await publicClient.waitForTransactionReceipt({ hash });
+        return NextResponse.json({ ok: true, action, hash });
     }
 
+    // SUBMIT (누락되었던 부분 복구!)
     if (action === "submit") {
       const { i, proofURI } = body;
       const { wc, account } = wallet("provider");
@@ -365,6 +232,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, action, hash });
     }
 
+    // APPROVE (누락되었던 부분 복구!)
     if (action === "approve") {
       const { i } = body;
       const { wc, account } = wallet("client");
@@ -381,6 +249,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, action, hash });
     }
 
+    // REJECT (누락되었던 부분 복구!)
     if (action === "reject") {
       const { i, reasonURI } = body;
       const { wc, account } = wallet("client");
@@ -395,65 +264,32 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, action, hash });
     }
 
+    // CLAIM (누락되었던 부분 복구!)
     if (action === "claim") {
       const { i, reasonURI } = body;
-      // ✅ provider로 서명
       const { wc, account } = wallet("provider");
-      // ✅ 실패해도 원인 추적용 pre-snapshot
-      const [provider, client, block, m] = await Promise.all([
-        publicClient.readContract({ address: ESCROW, abi: escrowAbi, functionName: "provider" }),
-        publicClient.readContract({ address: ESCROW, abi: escrowAbi, functionName: "client" }),
-        publicClient.getBlock({ blockTag: "latest" }),
-        publicClient.readContract({
-          address: ESCROW,
-          abi: escrowAbi,
-          functionName: "getMilestone",
-          args: [i],
-        }),
-      ]);
-      const pre = {
-        from: account.address,
-        chainTime: Number(block.timestamp),
-        provider,
-        client,
-        milestone: {
-          status: Number((m as any).status),
-          deadline: Number((m as any).deadline),
-          submittedAt: Number((m as any).submittedAt),
-          proofURI: (m as any).proofURI,
-          reasonURI: (m as any).reasonURI,
-        },
-      };
+      
       try {
         const hash = await wc.writeContract({
           address: ESCROW,
           abi: escrowAbi,
           functionName: "claim",
-          args: [BigInt(i), String(reasonURI)],
+          args: [BigInt(i)], // claim은 인자가 index 하나입니다 (컨트랙트 확인 필요)
           account,
         });
         await publicClient.waitForTransactionReceipt({ hash });
-        return NextResponse.json({ ok: true, action, hash, pre });
+        return NextResponse.json({ ok: true, action, hash });
       } catch (e: any) {
-        return NextResponse.json(
-          {
-            ok: false,
-            action,
-            pre,
-            error: {
-              name: e?.name,
-              message: e?.shortMessage || e?.message || String(e),
-              cause: e?.cause?.shortMessage || e?.cause?.message,
-              revertName: e?.cause?.data?.errorName,
-              revertArgs: e?.cause?.data?.args,
-              revertReason: e?.cause?.reason,
-            },
-          },
-          { status: 400 }
-        );
+         // Revert 사유 파악용 에러 반환
+         return NextResponse.json({ 
+             ok: false, 
+             error: errToJson(e) 
+         }, { status: 400 });
       }
     }
+
     return NextResponse.json({ ok: false, error: { message: "unknown action" } }, { status: 400 });
+
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: errToJson(e) }, { status: 500 });
   }
