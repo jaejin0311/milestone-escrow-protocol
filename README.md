@@ -4,6 +4,7 @@
 ![Solidity](https://img.shields.io/badge/Solidity-0.8.20-green?style=flat-square&logo=solidity)
 ![Next.js](https://img.shields.io/badge/Next.js-14-black?style=flat-square&logo=next.js)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=flat-square&logo=typescript)
+![Supabase](https://img.shields.io/badge/Supabase-Database%20%26%20Storage-3ECF8E?style=flat-square&logo=supabase)
 ![Viem](https://img.shields.io/badge/Viem-Client-orange?style=flat-square)
 
 ## 👋 Introduction
@@ -32,6 +33,7 @@
 | **Smart Contract** | **Solidity 0.8.20** | 정산 로직을 on-chain 상태로 고정하여 분쟁 비용 감소 |
 | **Testing** | **Foundry (forge/anvil)** | 빠른 로컬 반복 + 강력한 테스트/체인 시뮬레이션 |
 | **Frontend** | **Next.js 14 (App Router)** | UI + API Routes로 데모 백엔드 구성 용이 |
+| **Database** | **Supabase (PostgreSQL)** | 온체인 이벤트 인덱싱 및 빠른 UI 렌더링 (No local JSON) |
 | **Web3 Client** | **viem** | 경량/현대적인 컨트랙트 read/write 클라이언트 |
 | **Environment** | **GitHub Codespaces** | stateless 개발환경에서도 재현 가능한 데모 |
 
@@ -63,7 +65,17 @@
 - Reject 후 resubmit 동작 검증
 - 권한/순서 체크 (`NOT_PROVIDER`, `NOT_FUNDED`, `PREV_NOT_PAID` 등)
 
-### 4) Codespaces-friendly Web Demo (Implemented)
+### 4) Proof of Work with Storage (New!)
+작업자는 텍스트 설명뿐만 아니라 **파일(이미지, 문서 등)을 업로드**하여 작업 증빙을 할 수 있습니다.
+- 파일은 **Supabase Storage**에 보안 저장되며, URL이 온체인에 기록됩니다.
+- UI에서 이미지 미리보기 및 다운로드 링크를 제공합니다.
+
+### 5) Factory-based Escrow Creation & Sync
+- `MilestoneEscrowFactory`에서 `createEscrow()`로 새 에스크로를 생성합니다.
+- 생성된 에스크로 주소와 메타데이터는 **Supabase DB에 자동 저장**됩니다.
+- 이를 통해 Testnet 환경에서도 `eth_getLogs` 제한 없이 **빠르고 영구적인 리스트 조회**가 가능합니다.
+
+### 6) Codespaces-friendly Web Demo (Implemented)
 
 Codespaces에서 `anvil`은 컨테이너 내부 `127.0.0.1`에 떠서, 로컬 브라우저 MetaMask가 직접 붙기 어렵습니다.  
 그래서 이 데모는 다음 구조로 동작합니다.
@@ -75,7 +87,7 @@ Codespaces에서 `anvil`은 컨테이너 내부 `127.0.0.1`에 떠서, 로컬 �
 
 > ⚠️ Security Note: 데모 전용입니다. `.env.local`에 private key가 들어갑니다. 절대 커밋하지 마세요.
 
-### 5) Factory-based Escrow Creation (Implemented)
+### 7) Factory-based Escrow Creation (Implemented)
 
 - `MilestoneEscrowFactory`에서 `createEscrow()`로 새 에스크로를 생성합니다.
 - UI에서 새 에스크로를 생성/선택할 수 있어, **env 주소 교체 없이 데모를 계속** 진행할 수 있습니다.
@@ -102,14 +114,14 @@ Codespaces에서 `anvil`은 컨테이너 내부 `127.0.0.1`에 떠서, 로컬 �
 
 ```text
 Browser UI
-  ↓ fetch
+  ↕ (Data Sync)
+Supabase (DB & Storage)
+  ↓ (Write Action)
 Next.js (API routes) ──(JSON-RPC)──> RPC (Anvil or Sepolia)
   ↓
 Factory → Escrow Contracts
 ```
-⚠️ RPC Note (Alchemy Free tier)
-eth_getLogs는 스캔 범위 제한이 있어, 본 데모는 최근 블록만 스캔하고
-생성된 escrow 주소를 .data/escrows.json에 저장해 재사용합니다.
+⚠️ UI는 Supabase에서 리스트를 조회하고, 트랜잭션 실행(Write)은 API Route를 통해 체인에 반영한 뒤 Supabase를 업데이트합니다.
 
 ## 🚀 Getting Started
 
@@ -170,6 +182,10 @@ PROVIDER_PK=0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
 ESCROW_RPC_URL=https://eth-sepolia.g.alchemy.com/v2/YOUR_KEY
 FACTORY_ADDRESS=0xYOUR_FACTORY_ADDRESS
 
+# Supabase Configuration
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+
 # demo keys (Sepolia wallet private keys)
 # NOTE: 반드시 0x prefix 포함
 CLIENT_PK=0x...
@@ -224,6 +240,13 @@ LinkedIn: linkedin.com/in/jaejink
 <br/>
 
 ## 📝 Dev Log
+
+2025-12-18: Supabase Integration & UX Polish
+- **Feature:** Local JSON 캐싱 방식을 **Supabase(PostgreSQL)**로 전면 교체. 이제 배포된 에스크로 정보가 DB에 영구 저장됨.
+- **Feature:** **Supabase Storage**를 연동하여 파일 업로드 기능 구현. (Proof Submission 시 파일 첨부 가능)
+- **UX Improvement:** `Optimistic Update`(낙관적 업데이트) 적용. `fund()` 트랜잭션 후 채굴 대기 시간 동안 UI가 즉시 반응하도록 개선하여 사용성 증대.
+- **UX Improvement:** 마일스톤 상세 뷰(Detail View) 구현. 상태별(Pending, Submitted, Approved)로 가능한 액션 버튼만 노출되도록 조건부 렌더링 고도화.
+- **Refactoring:** 컴포넌트 분리(Atomic Design) 필요성 확인. `Home` 컴포넌트 비대화 문제를 해결하기 위해 리스트/상세 뷰 분리 계획 수립.
 
 2025-12-14: UI 개선 (claim UX + 상태 메시지 + 선택/정렬 안정화)
 - Added: claim 상태 안내 문구 (`submit first` / `ready in ...` / `ready`) 및 버튼 disable 조건 정리
