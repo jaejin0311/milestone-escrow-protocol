@@ -125,7 +125,7 @@ export async function POST(req: Request) {
 
     // [1] Create Escrow
     if (action === "createEscrow") {
-      console.log("Creating Escrow with body:", body);
+      // console.log("Creating Escrow with body:", body);
       const clientAddr = (body?.client as string) || "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
       const providerAddr = (body?.provider as string) || "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
       const amountsEth: string[] = body.amountsEth || ["0.001"];

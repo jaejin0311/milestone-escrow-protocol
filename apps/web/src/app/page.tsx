@@ -292,15 +292,49 @@ export default function Home() {
 
   async function act(action: string, payload: any = {}) {
     if (!selectedEscrow) return;
+    // 1. 버튼 비활성화 (중복 클릭 방지)
+    setBusy(true);
+    setLog(`Initiating ${action}...`);
+    setError(null);
     try {
-      await post(action, { escrow: selectedEscrow, ...payload });
-      setNotice(`OK: ${action}(${Object.keys(payload).join(", ") || "no args"})`);
-      await refresh(selectedEscrow);
+      const res = await post(action, {escrow: selectedEscrow, ...payload});
+      
+      if(res.hash){
+        setLog(`Tx sent: ${res.hash}\nWaiting for mining...`);
+
+        const rpcUrl = "https://ethereum-sepolia.publicnode.com";
+        const publicClient = createPublicClient({ chain: sepolia, transport: http(rpcUrl) });
+        
+        await publicClient.waitForTransactionReceipt({ hash: res.hash });
+        setLog(`Transaction mined! Updating UI...`);
+      }
+      // 4. [핵심] 화면 강제 업데이트 (Optimistic Update)
+      // refresh를 기다리지 않고, 우리가 아는 결과로 화면을 먼저 고칩니다.
+      if (action === "fund") {
+        setState((prev) => {
+           if (!prev || !prev.snapshot) return prev;
+           return {
+             ...prev,
+             snapshot: { 
+               ...prev.snapshot, 
+               funded: true // ✅ 강제로 'Funded' 상태로 변경 -> 버튼 사라짐
+             } 
+           };
+        });
+      }
+      
+      // submit 후 폼 초기화
       if (action === 'submit') {
           setIsResubmitting(false);
           setDescInput("");
           setFileUrl("");
       }
+      if (action === 'reject') setReasonURI("");
+
+      setNotice(`Success: ${action}`);
+      
+      // 5. 실제 데이터 새로고침 (확인 사살)
+      await refresh(selectedEscrow);
       if (action === 'reject') setReasonURI("");
     } catch (e: any) {
       setError(e?.message || String(e));
