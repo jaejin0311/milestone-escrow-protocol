@@ -5,6 +5,9 @@ import { supabase } from "@/lib/supabase";
 import { createPublicClient, http, parseEventLogs } from "viem";
 import { sepolia } from "viem/chains";
 import { factoryAbi } from "@/lib/factoryAbi";
+import EscrowList from "../components/escrow/MyEscrowList";
+import { trimAddr, formatDate, isImage, formatDuration } from "../app/utils/format";
+
 
 // --- Types ---
 type EscrowMetadata = {
@@ -59,35 +62,6 @@ function statusBadgeStyle(s: number): React.CSSProperties {
     4: { background: "#f0fdf4", color: "#166534", borderColor: "#bbf7d0" },
   };
   return map[s] ?? { background: "#f3f4f6", color: "#111827", borderColor: "#e5e7eb" };
-}
-
-function formatDuration(sec: number) {
-  let s = Math.max(0, Math.floor(sec));
-  const d = Math.floor(s / 86400);
-  s -= d * 86400;
-  const h = Math.floor(s / 3600);
-  s -= h * 3600;
-  const m = Math.ceil(s / 60); 
-  if (d > 0) return `${d}d ${h}h`;
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
-}
-
-function trimAddr(addr?: string) {
-  if (!addr) return "";
-  if (addr.length < 12) return addr;
-  return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
-}
-
-function formatDate(isoString?: string) {
-  if (!isoString) return "";
-  return new Date(isoString).toLocaleDateString("ko-KR", {
-    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
-  });
-}
-
-function isImage(url: string) {
-  return /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(url);
 }
 
 export default function Home() {
@@ -368,6 +342,7 @@ export default function Home() {
 
   return (
     <main style={container}>
+      {/* header */}
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
         <div>
           <h1 style={{ margin: 0 }}>Milestone Escrow (Factory Demo)</h1>
@@ -392,46 +367,12 @@ export default function Home() {
       <div style={{ height: 20 }} />
 
       <div style={grid}>
-        <section style={card}>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-            <div style={{ fontWeight: 800 }}>My Escrows</div>
-            <div style={{ fontSize: 12, color: "#6b7280" }}>{state?.escrows?.length ?? 0} items</div>
-          </div>
-          <div style={{ height: 12 }} />
-          <div style={{ display: "grid", gap: 8, maxHeight: '70vh', overflowY: 'auto', paddingRight: 4 }}>
-            {(state?.escrows ?? []).map((addr) => {
-              const sel = addr === selectedEscrow;
-              const meta = state?.dbData?.find((d) => d.address.toLowerCase() === addr.toLowerCase());
-              const title = meta?.title || "Untitled Project";
-              const dateStr = formatDate(meta?.created_at);
-
-              return (
-                <button
-                  key={addr}
-                  onClick={() => refresh(addr)}
-                  style={{
-                    textAlign: "left",
-                    border: "1px solid",
-                    borderColor: sel ? "#111827" : "#e5e7eb",
-                    background: sel ? "#f9fafb" : "#fff",
-                    borderRadius: 12,
-                    padding: "12px 14px",
-                    cursor: "pointer",
-                    position: "relative"
-                  }}
-                >
-                  {sel && <div style={{ position:'absolute', left:0, top:12, bottom:12, width:4, background:'#111827', borderTopRightRadius:4, borderBottomRightRadius:4 }} />}
-                  <div style={{ fontWeight: 700, fontSize: 15, color: sel ? "#000" : "#374151", marginBottom: 4 }}>{title}</div>
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                    <div style={{ color: "#9ca3af", fontSize: 11, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>{trimAddr(addr)}</div>
-                    <div style={{ fontSize: 11, color: "#d1d5db" }}>{dateStr}</div>
-                  </div>
-                </button>
-              );
-            })}
-            {!state?.escrows?.length && <div style={{ color: "#9ca3af", textAlign:'center', padding: '40px 0', fontSize: 14 }}>No escrows found.</div>}
-          </div>
-        </section>
+        <EscrowList 
+          escrows={state?.escrows ?? []}
+          dbData={state?.dbData}
+          selectedEscrow={selectedEscrow}
+          onSelect={(addr) => refresh(addr)}
+        />
 
         <section style={card}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
