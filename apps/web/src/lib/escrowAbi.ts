@@ -25,6 +25,3 @@ export const escrowAbi = [
   { "type":"function","name":"reject","stateMutability":"nonpayable","inputs":[{"type":"uint256","name":"i"},{"type":"string","name":"reasonURI"}],"outputs":[] },
   { "type":"function","name":"claim","stateMutability":"nonpayable","inputs":[{"type":"uint256","name":"i"}],"outputs":[] }
 ] as const;
-
-export const statusLabel = (s: number) =>
-  ["Pending","Submitted","Approved","Rejected","Paid", "Claimed"][s] ?? `Unknown(${s})`;
