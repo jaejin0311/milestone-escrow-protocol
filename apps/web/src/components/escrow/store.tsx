@@ -44,7 +44,6 @@ export type ApiState = {
 };
 
 export type EscrowStore = {
-  // inputs
   clientAddr: string;
   setClientAddr: React.Dispatch<React.SetStateAction<string>>;
   providerAddr: string;
@@ -56,17 +55,14 @@ export type EscrowStore = {
   titleInput: string;
   setTitleInput: React.Dispatch<React.SetStateAction<string>>;
 
-  // api state
   state: ApiState | null;
   setState: React.Dispatch<React.SetStateAction<ApiState | null>>;
   escrowLimit: number;
   setEscrowLimit: React.Dispatch<React.SetStateAction<number>>;
 
-  // selection
   selectedMilestoneIdx: number;
   setSelectedMilestoneIdx: React.Dispatch<React.SetStateAction<number>>;
 
-  // submit form
   descInput: string;
   setDescInput: React.Dispatch<React.SetStateAction<string>>;
   fileUrl: string;
@@ -78,7 +74,6 @@ export type EscrowStore = {
   reasonURI: string;
   setReasonURI: React.Dispatch<React.SetStateAction<string>>;
 
-  // common ui state
   busy: boolean;
   setBusy: React.Dispatch<React.SetStateAction<boolean>>;
   log: string;
@@ -88,23 +83,20 @@ export type EscrowStore = {
   notice: string | null;
   setNotice: React.Dispatch<React.SetStateAction<string | null>>;
 
-  // timing
   fetchedAtMs: number;
   setFetchedAtMs: React.Dispatch<React.SetStateAction<number>>;
   tick: number;
   setTick: React.Dispatch<React.SetStateAction<number>>;
 
-  // derived
   selectedEscrow: string | null;
   snap: Snapshot | null;
   selectedMilestone: Milestone | null;
   isAllPaid: boolean;
 };
 
-const EscrowStoreCtx = createContext<EscrowStore | null>(null);
+const Ctx = createContext<EscrowStore | null>(null);
 
 export function EscrowProvider({ children }: { children: React.ReactNode }) {
-  // defaults (원래 constants에 있던 초기값들)
   const [clientAddr, setClientAddr] = useState("0xAFCe530A7D5D6CAB18129dfCdDd2A25F7B825a0D");
   const [providerAddr, setProviderAddr] = useState("0x70997970C51812dc3A010C7d01b50e0d17dc79C8");
   const [amountsEthCsv, setAmountsEthCsv] = useState("0.0001,0.0002");
@@ -220,11 +212,11 @@ export function EscrowProvider({ children }: { children: React.ReactNode }) {
     ]
   );
 
-  return <EscrowStoreCtx.Provider value={value}>{children}</EscrowStoreCtx.Provider>;
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
 export function useEscrowStore() {
-  const ctx = useContext(EscrowStoreCtx);
+  const ctx = useContext(Ctx);
   if (!ctx) throw new Error("useEscrowStore must be used inside <EscrowProvider />");
   return ctx;
 }

@@ -3,7 +3,7 @@
 import React from "react";
 import { trimAddr, isImage, formatDuration, statusBadgeStyle, statusLabel } from "../../app/utils/format";
 import { useEscrowStore } from "@/components/escrow/store";
-import { useEscrow } from "@/hooks/useEscrow"
+import { useEscrowActions } from "@/hooks/useEscrowActions";
 
 export default function MileStoneDetails() {
   // 스타일 정의
@@ -18,7 +18,7 @@ export default function MileStoneDetails() {
         canApprove,
         canReject,
         canClaim,
-    } = useEscrow();
+    } = useEscrowActions();
     // --- Styles ---
     const card: React.CSSProperties = { border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, background: "#fff" };
     const btn: React.CSSProperties = { border: "1px solid #d1d5db", background: "#111827", color: "#fff", padding: "10px 12px", borderRadius: 10, cursor: "pointer" };

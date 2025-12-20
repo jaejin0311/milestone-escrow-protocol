@@ -1,20 +1,13 @@
 "use client";
 
-import { useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { createPublicClient, http, parseEventLogs } from "viem";
 import { sepolia } from "viem/chains";
 import { factoryAbi } from "@/lib/factoryAbi";
 import { useEscrowStore } from "@/components/escrow/store";
 
-export function useEscrow() {
+export function useEscrowActions() {
   const s = useEscrowStore();
-
-  // tick
-  useEffect(() => {
-    const id = setInterval(() => s.setTick((t) => t + 1), 60_000);
-    return () => clearInterval(id);
-  }, [s]);
 
   function getEscrowTitle(addr: string) {
     if (!s.state?.dbData) return null;
@@ -52,6 +45,11 @@ export function useEscrow() {
   }
 
   async function refresh(escrow?: string | null, opts?: { autoPick?: boolean }) {
+    // ✅ 클릭 즉시 선택 선반영
+    if (escrow) {
+      s.setState((prev) => (prev ? { ...prev, selected: escrow } : prev));
+    }
+
     const params = new URLSearchParams();
     params.set("limit", String(s.escrowLimit));
     if (escrow) params.set("escrow", escrow);
@@ -61,20 +59,30 @@ export function useEscrow() {
 
     try {
       const data = JSON.parse(text);
+
+      // ✅ API가 selected를 안 주거나 null이면 클라이언트가 보정
+      if (escrow && (!data?.selected || data.selected === null)) data.selected = escrow;
+
       s.setFetchedAtMs(Date.now());
       s.setState(data);
+
+      // (디버그 원하면)
+      // s.setLog(`selected=${data.selected} snapshot=${data?.snapshot?.address ?? "null"}`);
 
       const ms = data?.snapshot?.milestones ?? [];
       if ((opts?.autoPick ?? false) && ms.length > 0) {
         const nextIdx = ms.find((x: any) => x.status === 0 || x.status === 3)?.i ?? 0;
         s.setSelectedMilestoneIdx(nextIdx);
       }
+
       const count = data?.snapshot?.milestones?.length ?? 0;
       if (count > 0 && s.selectedMilestoneIdx >= count) s.setSelectedMilestoneIdx(0);
     } catch {
       s.setLog(text || "(empty response)");
     }
   }
+
+
 
   async function createNewEscrow() {
     if (s.clientAddr.toLowerCase() === s.providerAddr.toLowerCase()) {
@@ -117,12 +125,7 @@ export function useEscrow() {
       const receipt = await publicClient.waitForTransactionReceipt({ hash: out.hash });
       s.setLog(`Mined in block ${receipt.blockNumber}! Finding escrow address...`);
 
-      const parsed = parseEventLogs({
-        abi: factoryAbi,
-        logs: receipt.logs,
-        eventName: "EscrowCreated",
-      });
-
+      const parsed = parseEventLogs({ abi: factoryAbi, logs: receipt.logs, eventName: "EscrowCreated" });
       const newEscrowAddr = (parsed[0] as any)?.args?.escrow;
       if (!newEscrowAddr) throw new Error("Could not parse EscrowCreated event.");
 
@@ -181,15 +184,12 @@ export function useEscrow() {
 
       if (res.hash) {
         s.setLog(`Tx sent: ${res.hash}\nWaiting for mining...`);
-
         const rpcUrl = "https://ethereum-sepolia.publicnode.com";
         const publicClient = createPublicClient({ chain: sepolia, transport: http(rpcUrl) });
         await publicClient.waitForTransactionReceipt({ hash: res.hash });
-
         s.setLog(`Transaction mined! Updating UI...`);
       }
 
-      // optimistic funded
       if (action === "fund") {
         s.setState((prev) => {
           if (!prev?.snapshot) return prev;
@@ -202,6 +202,7 @@ export function useEscrow() {
         s.setDescInput("");
         s.setFileUrl("");
       }
+
       if (action === "reject") s.setReasonURI("");
 
       s.setNotice(`Success: ${action}`);
@@ -214,13 +215,7 @@ export function useEscrow() {
     }
   }
 
-  // page에서 쓰던 자동 refresh
-  useEffect(() => {
-    refresh(null).catch((e) => s.setLog(e?.message || String(e)));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [s.escrowLimit]);
-
-  // (임시) 권한/조건 계산은 기존 로직이 있으면 그대로 옮기면 됨
+  // 권한/상태 계산. 기존 로직 있으면 여기로 이관.
   const readyInSec = 0;
   const canFund = Boolean(s.selectedEscrow && s.snap && !s.snap.funded);
   const canSubmit = Boolean(s.selectedMilestone && (s.selectedMilestone.status === 0 || s.selectedMilestone.status === 3));
@@ -234,8 +229,6 @@ export function useEscrow() {
     createNewEscrow,
     act,
     handleFileUpload,
-
-    // derived flags
     readyInSec,
     canFund,
     canSubmit,
