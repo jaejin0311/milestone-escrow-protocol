@@ -263,6 +263,12 @@ LinkedIn: linkedin.com/in/jaejink
 
 ## 📝 Dev Log
 
+2025-02-10: 버튼 중복 클릭 방지 & Submit 시 파일 필수 & 설정 정리
+- **UX Improvement:** 액션 버튼(Fund / Submit / Approve / Reject / Claim / Create Escrow) 중복 클릭 방지. `actingRef` 가드로 두 번째 클릭을 무시하고, `post()`에 `keepBusy` 옵션을 두어 API 응답 후에도 버튼이 비활성화된 채로 유지(영수증 대기 → 낙관적 업데이트 → refresh 완료 후에만 해제).
+- **UX Improvement:** Submit 시 **파일 첨부 필수**. 설명만으로는 제출 불가, 파일 업로드 후에만 Submit 버튼 활성화. 안내 문구 "File required to submit" / "File attached" 추가.
+- **Refactoring:** `.env.example`, `config.ts`, `rpc.ts` 추가. API에서 env 검증 및 실패 시 명확한 에러 메시지. 사용하지 않는 `constants.ts` 삭제, npm 대신 pnpm 전용으로 `package-lock.json` 제거.
+- **DevEx:** Makefile에 `dev` 타깃 추가. README에 Supabase(escrows 테이블, proofs 버킷) 설정 안내 보강. API에서 create escrow 가스 상한 및 revert 시 힌트 메시지 정리.
+
 2025-12-18: Supabase Integration & UX Polish
 - **Feature:** Local JSON 캐싱 방식을 **Supabase(PostgreSQL)**로 전면 교체. 이제 배포된 에스크로 정보가 DB에 영구 저장됨.
 - **Feature:** **Supabase Storage**를 연동하여 파일 업로드 기능 구현. (Proof Submission 시 파일 첨부 가능)
