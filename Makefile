@@ -1,4 +1,4 @@
-.PHONY: test fmt lint
+.PHONY: test fmt lint dev
 
 test:
 	cd contracts && forge test -vvv
@@ -8,3 +8,6 @@ fmt:
 
 lint:
 	cd apps/web && pnpm lint
+
+dev:
+	cd apps/web && pnpm dev

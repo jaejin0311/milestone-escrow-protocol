@@ -38,6 +38,16 @@ export function HomeInner() {
             <input style={{ ...input, width: 240, borderColor: "#818cf8" }} placeholder="Project Title" value={s.titleInput} onChange={(e) => s.setTitleInput(e.target.value)} />
             <input style={{ ...input, width: 200 }} placeholder="Client" value={s.clientAddr} onChange={(e) => s.setClientAddr(e.target.value)} />
             <input style={{ ...input, width: 200 }} placeholder="Provider" value={s.providerAddr} onChange={(e) => s.setProviderAddr(e.target.value)} />
+            {s.state?.signerAddress && (
+              <button
+                type="button"
+                style={{ ...btnGhost, fontSize: 12, padding: "8px 10px" }}
+                onClick={() => { s.setClientAddr(s.state!.signerAddress!); s.setProviderAddr(s.state!.signerAddress!); }}
+                title="Use the same address for both (one-wallet mode)"
+              >
+                Use my signer for both
+              </button>
+            )}
             <input style={{ ...input, width: 100 }} placeholder="ETH" value={s.amountsEthCsv} onChange={(e) => s.setAmountsEthCsv(e.target.value)} />
             <input style={{ ...input, width: 80 }} placeholder="Days" value={s.deadlinesDaysCsv} onChange={(e) => s.setDeadlinesDaysCsv(e.target.value)} />
             <button style={{ ...btn, ...(s.busy ? btnDisabled : {}) }} onClick={createNewEscrow} disabled={s.busy}>Create Escrow</button>

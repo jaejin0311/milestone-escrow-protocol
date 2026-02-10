@@ -40,6 +40,12 @@ export default function MileStoneDetails() {
 
             <div style={{ height: 16 }} />
 
+            {s.snap && s.state?.signerAddress && s.snap.provider.toLowerCase() !== s.state.signerAddress.toLowerCase() && (
+            <div style={{ marginBottom: 16, padding: 14, background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, color: "#991b1b", fontSize: 14 }}>
+                <strong>Submit will revert (NOT_PROVIDER).</strong> This escrow’s provider is different from your signer. Create a new escrow: click <strong>Use my signer for both</strong> in the header, then Create Escrow → Fund → Submit on the new one.
+            </div>
+            )}
+
             {s.snap ? (
             <>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, background: '#f9fafb', padding: 12, borderRadius: 8 }}>
@@ -92,14 +98,14 @@ export default function MileStoneDetails() {
                             <div style={{ display: "flex", alignItems: "center", height: 38, color: "#6b7280" }}>{s.isResubmitting ? "re-submit" : "submit"}</div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                                 <textarea style={{ ...input, fontFamily: 'inherit', resize: 'vertical', minHeight: 60 }} placeholder="Description..." value={s.descInput} onChange={(e) => s.setDescInput(e.target.value)} disabled={s.uploading} />
-                                {s.fileUrl ? <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f0f9ff', border: '1px solid #bae6fd', padding: '8px 12px', borderRadius: 8, fontSize: 13 }}><div style={{ display:'flex', alignItems:'center', gap: 6, overflow:'hidden' }}><span>📎</span><a href={s.fileUrl} target="_blank" rel="noreferrer" style={{ color: '#0284c7', textDecoration:'underline', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth: 180 }}>{s.fileUrl.split('/').pop()}</a></div><button onClick={() => s.setFileUrl("")} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#ef4444', fontWeight: 800 }}>✕</button></div> : <div style={{ display:'flex', alignItems:'center', gap: 8 }}><label style={{ ...btnGhost, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 13, cursor: s.uploading ? 'wait' : 'pointer', background: s.uploading ? '#f3f4f6' : '#fff' }}><span>📤</span><span>{s.uploading ? "Uploading..." : "Attach File"}</span><input type="file" disabled={s.busy || s.uploading} onChange={handleFileUpload} style={{ display: 'none' }} /></label><span style={{ fontSize: 12, color: '#9ca3af' }}>No file chosen</span></div>}
+                                {s.fileUrl ? <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f0f9ff', border: '1px solid #bae6fd', padding: '8px 12px', borderRadius: 8, fontSize: 13 }}><div style={{ display:'flex', alignItems:'center', gap: 6, overflow:'hidden' }}><span>📎</span><a href={s.fileUrl} target="_blank" rel="noreferrer" style={{ color: '#0284c7', textDecoration:'underline', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth: 180 }}>{s.fileUrl.split('/').pop()}</a></div><button onClick={() => s.setFileUrl("")} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#ef4444', fontWeight: 800 }}>✕</button></div> : <div style={{ display:'flex', alignItems:'center', gap: 8 }}><label style={{ ...btnGhost, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 13, cursor: s.uploading ? 'wait' : 'pointer', background: s.uploading ? '#f3f4f6' : '#fff' }}><span>📤</span><span>{s.uploading ? "Uploading..." : "Attach File"}</span><input type="file" disabled={s.busy || s.uploading} onChange={handleFileUpload} style={{ display: 'none' }} /></label><span style={{ fontSize: 12, color: '#9ca3af' }}>{s.fileUrl ? 'File attached' : 'File required to submit'}</span></div>}
                             </div>
                             <div style={{ display:'flex', flexDirection:'column', gap: 6, height: '100%' }}>
                                 <button
-                                style={{ ...btn, height: '100%', ...(s.busy || s.uploading || !canSubmit || (!s.descInput && !s.fileUrl) ? btnDisabled : {}) }}
-                                disabled={s.busy || s.uploading || !canSubmit || (!s.descInput && !s.fileUrl)}
+                                style={{ ...btn, height: '100%', ...(s.busy || s.uploading || !canSubmit || !s.fileUrl ? btnDisabled : {}) }}
+                                disabled={s.busy || s.uploading || !canSubmit || !s.fileUrl}
                                 onClick={() => {
-                                    const finalProof = s.descInput && s.fileUrl ? `${s.descInput} | ${s.fileUrl}` : s.descInput || s.fileUrl;
+                                    const finalProof = s.descInput && s.fileUrl ? `${s.descInput} | ${s.fileUrl}` : s.fileUrl;
                                     act("submit", { i: s.selectedMilestoneIdx, proofURI: finalProof }).then(() => s.setIsResubmitting(false));
                                 }}
                                 >

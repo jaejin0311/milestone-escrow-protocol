@@ -41,6 +41,8 @@ export type ApiState = {
   dbData?: EscrowMetadata[];
   selected: string | null;
   snapshot: Snapshot | null;
+  signerAddress?: string;
+  factoryAddress?: string;
 };
 
 export type EscrowStore = {
@@ -97,8 +99,9 @@ export type EscrowStore = {
 const Ctx = createContext<EscrowStore | null>(null);
 
 export function EscrowProvider({ children }: { children: React.ReactNode }) {
+  // Same address for both by default so one wallet can be used for testing (fund + submit + approve)
   const [clientAddr, setClientAddr] = useState("0xAFCe530A7D5D6CAB18129dfCdDd2A25F7B825a0D");
-  const [providerAddr, setProviderAddr] = useState("0x70997970C51812dc3A010C7d01b50e0d17dc79C8");
+  const [providerAddr, setProviderAddr] = useState("0xAFCe530A7D5D6CAB18129dfCdDd2A25F7B825a0D");
   const [amountsEthCsv, setAmountsEthCsv] = useState("0.0001,0.0002");
   const [deadlinesDaysCsv, setDeadlinesDaysCsv] = useState("7,14");
   const [titleInput, setTitleInput] = useState("");

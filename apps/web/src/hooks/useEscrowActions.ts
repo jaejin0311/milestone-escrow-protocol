@@ -1,13 +1,16 @@
 "use client";
 
+import { useRef } from "react";
 import { supabase } from "@/lib/supabase";
-import { createPublicClient, http, parseEventLogs } from "viem";
+import { getClientRpcUrl } from "@/lib/rpc";
+import { createPublicClient, http, parseEventLogs, parseEther } from "viem";
 import { sepolia } from "viem/chains";
 import { factoryAbi } from "@/lib/factoryAbi";
 import { useEscrowStore } from "@/components/escrow/store";
 
 export function useEscrowActions() {
   const s = useEscrowStore();
+  const actingRef = useRef(false);
 
   function getEscrowTitle(addr: string) {
     if (!s.state?.dbData) return null;
@@ -15,7 +18,7 @@ export function useEscrowActions() {
     return found?.title || null;
   }
 
-  async function post(action: string, payload: any = {}) {
+  async function post(action: string, payload: any = {}, opts?: { keepBusy?: boolean }) {
     s.setBusy(true);
     try {
       s.setLog("...");
@@ -40,7 +43,7 @@ export function useEscrowActions() {
       if (!res.ok) throw new Error(json?.error?.message || text || `HTTP ${res.status}`);
       return json;
     } finally {
-      s.setBusy(false);
+      if (!opts?.keepBusy) s.setBusy(false);
     }
   }
 
@@ -114,16 +117,31 @@ export function useEscrowActions() {
 
 
   async function createNewEscrow() {
-    if (s.clientAddr.toLowerCase() === s.providerAddr.toLowerCase()) {
-      s.setError("Client and Provider address must be different!");
-      return;
-    }
-
     const amountsEth = s.amountsEthCsv.split(",").map((x) => x.trim()).filter(Boolean);
     const days = s.deadlinesDaysCsv
       .split(",")
       .map((x) => Number(x.trim()))
       .filter((n) => Number.isFinite(n) && n > 0);
+
+    if (amountsEth.length === 0 || days.length === 0) {
+      s.setError("Enter at least one ETH amount and one day (e.g. 0.001 and 7).");
+      return;
+    }
+    if (amountsEth.length !== days.length) {
+      s.setError(`You have ${amountsEth.length} amount(s) and ${days.length} day(s). They must match (e.g. 0.001,0.002 and 7,14).`);
+      return;
+    }
+    let zeroIdx = -1;
+    try {
+      zeroIdx = amountsEth.findIndex((a) => !a.trim() || parseEther(a.trim()) === 0n);
+    } catch {
+      s.setError("Invalid ETH amount format (e.g. use 0.001 not text).");
+      return;
+    }
+    if (zeroIdx !== -1) {
+      s.setError(`Milestone ${zeroIdx + 1} amount must be > 0. Check the ETH field.`);
+      return;
+    }
 
     const nowSec =
       s.snap?.chainTime && s.fetchedAtMs
@@ -132,6 +150,8 @@ export function useEscrowActions() {
 
     const deadlinesSec = days.map((d) => nowSec + d * 24 * 60 * 60);
 
+    if (actingRef.current) return;
+    actingRef.current = true;
     s.setBusy(true);
     s.setLog("Initiating transaction...");
     s.setError(null);
@@ -142,21 +162,22 @@ export function useEscrowActions() {
         provider: s.providerAddr,
         amountsEth,
         deadlinesSec,
-      });
+      }, { keepBusy: true });
 
       if (!out?.hash) throw new Error("No tx hash returned");
 
-      s.setLog(`Transaction sent: ${out.hash}\nWaiting for mining on Sepolia...`);
-
-      const rpcUrl = "https://ethereum-sepolia.publicnode.com";
-      const publicClient = createPublicClient({ chain: sepolia, transport: http(rpcUrl) });
-
-      const receipt = await publicClient.waitForTransactionReceipt({ hash: out.hash });
-      s.setLog(`Mined in block ${receipt.blockNumber}! Finding escrow address...`);
-
-      const parsed = parseEventLogs({ abi: factoryAbi, logs: receipt.logs, eventName: "EscrowCreated" });
-      const newEscrowAddr = (parsed[0] as any)?.args?.escrow;
-      if (!newEscrowAddr) throw new Error("Could not parse EscrowCreated event.");
+      let newEscrowAddr: string | undefined = out.escrow;
+      if (!newEscrowAddr) {
+        s.setLog(`Transaction sent: ${out.hash}\nWaiting for mining on Sepolia...`);
+        const publicClient = createPublicClient({ chain: sepolia, transport: http(getClientRpcUrl()) });
+        const receipt = await publicClient.waitForTransactionReceipt({ hash: out.hash });
+        s.setLog(`Mined in block ${receipt.blockNumber}! Finding escrow address...`);
+        const factoryAddr = s.state?.factoryAddress;
+        const logs = factoryAddr ? receipt.logs.filter((l: any) => l.address?.toLowerCase() === factoryAddr?.toLowerCase()) : receipt.logs;
+        const parsed = parseEventLogs({ abi: factoryAbi, logs, eventName: "EscrowCreated" });
+        newEscrowAddr = (parsed[0] as any)?.args?.escrow;
+        if (!newEscrowAddr) throw new Error("Could not parse EscrowCreated event. Try refreshing and creating again.");
+      }
 
       await post("saveEscrow", {
         escrowAddress: newEscrowAddr,
@@ -172,6 +193,7 @@ export function useEscrowActions() {
     } catch (e: any) {
       s.setError(e?.message || String(e));
     } finally {
+      actingRef.current = false;
       s.setBusy(false);
     }
   }
@@ -203,19 +225,30 @@ export function useEscrowActions() {
 
   async function act(action: string, payload: any = {}) {
     if (!s.selectedEscrow) return;
-
+    if (actingRef.current) return;
+    actingRef.current = true;
     s.setBusy(true);
     s.setLog(`Initiating ${action}...`);
     s.setError(null);
 
     try {
-      const res = await post(action, { escrow: s.selectedEscrow, ...payload });
+      const res = await post(action, { escrow: s.selectedEscrow, ...payload }, { keepBusy: true });
 
       if (res.hash) {
         s.setLog(`Tx sent: ${res.hash}\nWaiting for mining...`);
-        const rpcUrl = "https://ethereum-sepolia.publicnode.com";
-        const publicClient = createPublicClient({ chain: sepolia, transport: http(rpcUrl) });
-        await publicClient.waitForTransactionReceipt({ hash: res.hash });
+        const publicClient = createPublicClient({ chain: sepolia, transport: http(getClientRpcUrl()) });
+        const receipt = await publicClient.waitForTransactionReceipt({ hash: res.hash });
+        if (receipt.status === "reverted") {
+          const hints: Record<string, string> = {
+            submit: "Possible: NOT_FUNDED (fund first), PREV_NOT_PAID (complete prior milestone), BAD_STATUS (already submitted?), EMPTY_PROOF (add description or file), NOT_PROVIDER (escrow was created with a different provider address — create a new escrow with the same Client and Provider address if using one wallet).",
+            fund: "Possible: ALREADY_FUNDED or BAD_VALUE.",
+            approve: "Possible: NOT_SUBMITTED (provider must submit first).",
+            reject: "Possible: NOT_SUBMITTED.",
+            claim: "Possible: BAD_STATUS, NO_SUBMIT_TS, or DISPUTE_WINDOW not passed.",
+          };
+          const hint = hints[action] || "Check the transaction on Etherscan for the revert reason.";
+          throw new Error(`Transaction reverted on-chain. ${hint}`);
+        }
         s.setLog(`Transaction mined! Updating UI...`);
       }
 
@@ -227,19 +260,49 @@ export function useEscrowActions() {
       }
 
       if (action === "submit") {
+        const { i, proofURI } = payload;
+        const idx = typeof i === "number" ? i : Number(i);
+        s.setState((prev) => {
+          if (!prev?.snapshot?.milestones || idx < 0 || idx >= prev.snapshot.milestones.length) return prev;
+          const milestones = prev.snapshot.milestones.map((m, j) =>
+            j === idx ? { ...m, status: 1, proofURI: proofURI ?? m.proofURI, submittedAt: Math.floor(Date.now() / 1000) } : m
+          );
+          return { ...prev, snapshot: { ...prev.snapshot, milestones } };
+        });
         s.setIsResubmitting(false);
         s.setDescInput("");
         s.setFileUrl("");
       }
 
-      if (action === "reject") s.setReasonURI("");
+      if (action === "approve" || action === "claim") {
+        const { i } = payload;
+        const idx = typeof i === "number" ? i : Number(i);
+        s.setState((prev) => {
+          if (!prev?.snapshot?.milestones || idx < 0 || idx >= prev.snapshot.milestones.length) return prev;
+          const milestones = prev.snapshot.milestones.map((m, j) => (j === idx ? { ...m, status: 4 } : m));
+          return { ...prev, snapshot: { ...prev.snapshot, milestones } };
+        });
+      }
+
+      if (action === "reject") {
+        const { i } = payload;
+        const idx = typeof i === "number" ? i : Number(i);
+        s.setState((prev) => {
+          if (!prev?.snapshot?.milestones || idx < 0 || idx >= prev.snapshot.milestones.length) return prev;
+          const milestones = prev.snapshot.milestones.map((m, j) => (j === idx ? { ...m, status: 3 } : m));
+          return { ...prev, snapshot: { ...prev.snapshot, milestones } };
+        });
+        s.setReasonURI("");
+      }
 
       s.setNotice(`Success: ${action}`);
+      // Brief delay so RPC has the new block, then refresh to sync with chain
+      await new Promise((r) => setTimeout(r, 500));
       await refresh(s.selectedEscrow);
-      if (action === "reject") s.setReasonURI("");
     } catch (e: any) {
       s.setError(e?.message || String(e));
     } finally {
+      actingRef.current = false;
       s.setBusy(false);
     }
   }
