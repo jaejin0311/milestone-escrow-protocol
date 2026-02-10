@@ -44,6 +44,9 @@ export function useEscrowActions() {
     }
   }
 
+  const REFRESH_RETRIES = 2;
+  const REFRESH_RETRY_DELAY_MS = 1500;
+
   async function refresh(escrow?: string | null, opts?: { autoPick?: boolean }) {
     // ✅ 클릭 즉시 선택 선반영
     if (escrow) {
@@ -54,32 +57,58 @@ export function useEscrowActions() {
     params.set("limit", String(s.escrowLimit));
     if (escrow) params.set("escrow", escrow);
 
-    const res = await fetch(`/api/escrow?${params.toString()}`, { cache: "no-store" });
-    const text = await res.text();
+    const url = `/api/escrow?${params.toString()}`;
+    let lastError: Error | null = null;
 
-    try {
-      const data = JSON.parse(text);
+    for (let attempt = 0; attempt <= REFRESH_RETRIES; attempt++) {
+      try {
+        const res = await fetch(url, { cache: "no-store" });
+        const text = await res.text();
 
-      // ✅ API가 selected를 안 주거나 null이면 클라이언트가 보정
-      if (escrow && (!data?.selected || data.selected === null)) data.selected = escrow;
+        if (!res.ok) {
+          const errMsg = (() => {
+            try {
+              const j = JSON.parse(text);
+              return j?.error?.message || text || `HTTP ${res.status}`;
+            } catch {
+              return text || `HTTP ${res.status}`;
+            }
+          })();
+          throw new Error(errMsg);
+        }
 
-      s.setFetchedAtMs(Date.now());
-      s.setState(data);
+        const data = JSON.parse(text);
+        if (data?.ok === false) {
+          throw new Error(data?.error?.message || "API returned ok: false");
+        }
 
-      // (디버그 원하면)
-      // s.setLog(`selected=${data.selected} snapshot=${data?.snapshot?.address ?? "null"}`);
+        // ✅ API가 selected를 안 주거나 null이면 클라이언트가 보정
+        if (escrow && (!data?.selected || data.selected === null)) data.selected = escrow;
 
-      const ms = data?.snapshot?.milestones ?? [];
-      if ((opts?.autoPick ?? false) && ms.length > 0) {
-        const nextIdx = ms.find((x: any) => x.status === 0 || x.status === 3)?.i ?? 0;
-        s.setSelectedMilestoneIdx(nextIdx);
+        s.setFetchedAtMs(Date.now());
+        s.setState(data);
+        s.setError(null); // clear load error on success
+
+        const ms = data?.snapshot?.milestones ?? [];
+        if ((opts?.autoPick ?? false) && ms.length > 0) {
+          const nextIdx = ms.find((x: any) => x.status === 0 || x.status === 3)?.i ?? 0;
+          s.setSelectedMilestoneIdx(nextIdx);
+        }
+
+        const count = data?.snapshot?.milestones?.length ?? 0;
+        if (count > 0 && s.selectedMilestoneIdx >= count) s.setSelectedMilestoneIdx(0);
+        return;
+      } catch (e: any) {
+        lastError = e instanceof Error ? e : new Error(String(e));
+        s.setLog(lastError.message + (attempt < REFRESH_RETRIES ? ` (retry ${attempt + 1}/${REFRESH_RETRIES} in ${REFRESH_RETRY_DELAY_MS / 1000}s…)` : ""));
+        if (attempt < REFRESH_RETRIES) {
+          await new Promise((r) => setTimeout(r, REFRESH_RETRY_DELAY_MS));
+        }
       }
-
-      const count = data?.snapshot?.milestones?.length ?? 0;
-      if (count > 0 && s.selectedMilestoneIdx >= count) s.setSelectedMilestoneIdx(0);
-    } catch {
-      s.setLog(text || "(empty response)");
     }
+
+    s.setError("Couldn't load escrows. Check Supabase (resume project if paused) or try again.");
+    if (lastError) s.setLog(lastError.message);
   }
 
 

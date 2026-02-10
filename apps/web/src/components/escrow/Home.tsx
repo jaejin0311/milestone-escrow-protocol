@@ -1,13 +1,12 @@
 "use client";
 
 import EscrowList from "../escrow/MyEscrowList";
-import { EscrowProvider, useEscrowStore } from "@/components/escrow/store";
+import { useEscrowStore } from "@/components/escrow/store";
 import { useEscrowActions } from "@/hooks/useEscrowActions";
-import { useEscrowAutoRefresh } from "@/hooks/useEscrowAutoRefresh";
 
 import MileStoneDetails from "@/components/milestone/MilestoneDetail";
 
-function HomeInner() {
+export function HomeInner() {
   const s = useEscrowStore();
   const {
     refresh,
@@ -83,10 +82,6 @@ function HomeInner() {
   );
 }
 
-export default function Page() {
-  return (
-    <EscrowProvider>
-      <HomeInner />
-    </EscrowProvider>
-  );
+export default function Home() {
+  return <HomeInner />;
 }
